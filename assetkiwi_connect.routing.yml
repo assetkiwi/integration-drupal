@@ -1,0 +1,40 @@
+assetkiwi_connect.settings:
+  path: '/admin/config/media/assetkiwi'
+  defaults:
+    _form: '\Drupal\assetkiwi_connect\Form\SettingsForm'
+    _title: 'Asset.Kiwi Settings'
+  requirements:
+    _permission: 'administer assetkiwi'
+
+assetkiwi_connect.browser:
+  path: '/admin/assetkiwi/browse'
+  defaults:
+    _controller: '\Drupal\assetkiwi_connect\Controller\AssetBrowserController::browse'
+    _title: 'Asset.Kiwi Asset Browser'
+  requirements:
+    _permission: 'browse assetkiwi assets'
+
+assetkiwi_connect.browser.select:
+  path: '/admin/assetkiwi/select/{uuid}'
+  defaults:
+    _controller: '\Drupal\assetkiwi_connect\Controller\AssetBrowserController::select'
+  requirements:
+    _permission: 'browse assetkiwi assets'
+
+assetkiwi_connect.browser.select_multiple:
+  path: '/admin/assetkiwi/select-multiple'
+  defaults:
+    _controller: '\Drupal\assetkiwi_connect\Controller\AssetBrowserController::selectMultiple'
+  requirements:
+    _permission: 'browse assetkiwi assets'
+  methods: [ POST ]
+  options:
+    no_cache: TRUE
+
+assetkiwi_connect.webhook:
+  path: '/assetkiwi/webhook'
+  defaults:
+    _controller: '\Drupal\assetkiwi_connect\Controller\WebhookController::receive'
+  requirements:
+    _access: 'TRUE'
+  methods: [ POST ]

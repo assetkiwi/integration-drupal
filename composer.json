@@ -1,0 +1,14 @@
+{
+    "name": "assetkiwi/assetkiwi_connect",
+    "description": "Connects to asset.kiwi digital asset management platform with asset browsing, usage tracking, webhook sync, and image formatting.",
+    "type": "drupal-module",
+    "license": "GPL-2.0-or-later",
+    "homepage": "https://assetkiwi.com",
+    "support": {
+        "issues": "https://github.com/assetkiwi/integration-drupal/issues",
+        "source": "https://github.com/assetkiwi/integration-drupal"
+    },
+    "require": {
+        "drupal/core": "^10 || ^11"
+    }
+}

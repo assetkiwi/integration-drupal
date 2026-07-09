@@ -1,0 +1,39 @@
+widget:
+  version: 1.x
+  js:
+    js/assetkiwi-widget.js: { }
+  css:
+    component:
+      css/assetkiwi-variables.css: { }
+      css/assetkiwi-widget.css: { }
+      css/assetkiwi-browser.css: { }
+  dependencies:
+    - core/drupal
+    - core/drupal.dialog.ajax
+    - core/jquery
+    - core/once
+    - assetkiwi_connect/browser
+
+browser:
+  version: 1.x
+  js:
+    js/assetkiwi-browser.js: { }
+  css:
+    component:
+      css/assetkiwi-variables.css: { }
+      css/assetkiwi-browser.css: { }
+  dependencies:
+    - core/drupal
+    - core/jquery
+    - core/once
+
+media_library:
+  version: 1.x
+  css:
+    component:
+      css/assetkiwi-variables.css: { }
+      css/assetkiwi-media-library.css: { }
+  dependencies:
+    - core/drupal
+    - core/jquery
+    - core/once

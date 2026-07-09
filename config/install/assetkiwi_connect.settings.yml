@@ -1,0 +1,8 @@
+api_url: ''
+api_token: ''
+cache_lifetime: 3600
+webhook_secret: ''
+image_style_mapping:
+  thumbnail: thumb
+  medium: medium
+  large: large

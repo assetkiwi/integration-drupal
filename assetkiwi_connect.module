@@ -1,0 +1,134 @@
+<?php
+
+/**
+ * @file
+ * Hook implementations for Asset.Kiwi Connect.
+ */
+
+declare(strict_types=1);
+
+use Drupal\Core\Entity\EntityInterface;
+use Drupal\Core\Routing\RouteMatchInterface;
+use Drupal\Core\Url;
+
+/**
+ * Implements hook_theme().
+ */
+function assetkiwi_connect_theme(): array {
+  return [
+    'assetkiwi_asset_browser' => [
+      'variables' => [
+        'assets' => [],
+        'collections' => [],
+        'tags' => [],
+        'filters' => [],
+        'pager' => [],
+        'type_options' => [],
+        'show_type_filter' => TRUE,
+        'allowed_types' => [],
+      ],
+      'template' => 'assetkiwi-asset-browser',
+    ],
+  ];
+}
+
+/**
+ * Implements hook_help().
+ */
+function assetkiwi_connect_help(string $route_name, RouteMatchInterface $route_match): string {
+  switch ($route_name) {
+    case 'help.page.assetkiwi_connect':
+      return '<p>' . t('Connects Drupal to the Asset.Kiwi digital asset management platform. Configure the connection at <a href=":settings">Asset.Kiwi Settings</a>.', [':settings' => Url::fromRoute('assetkiwi_connect.settings')->toString()]) . '</p>';
+  }
+  return '';
+}
+
+/**
+ * Implements hook_entity_insert().
+ */
+function assetkiwi_connect_entity_insert(EntityInterface $entity): void {
+  _assetkiwi_connect_track_usage($entity);
+}
+
+/**
+ * Implements hook_entity_update().
+ */
+function assetkiwi_connect_entity_update(EntityInterface $entity): void {
+  _assetkiwi_connect_track_usage($entity);
+}
+
+/**
+ * Implements hook_entity_delete().
+ */
+function assetkiwi_connect_entity_delete(EntityInterface $entity): void {
+  _assetkiwi_connect_remove_usage($entity);
+}
+
+/**
+ * Reports asset usage to Asset.Kiwi for media entities.
+ */
+function _assetkiwi_connect_track_usage(EntityInterface $entity): void {
+  if ($entity->getEntityTypeId() !== 'media') {
+    return;
+  }
+
+  if (!$entity->hasField('field_assetkiwi_uuid')) {
+    return;
+  }
+
+  $uuid = $entity->get('field_assetkiwi_uuid')->getString();
+  if (empty($uuid)) {
+    return;
+  }
+
+  try {
+    /** @var \Drupal\assetkiwi_connect\Client\AssetKiwiClient $client */
+    $client = Drupal::service('assetkiwi_connect.client');
+    $client->reportUsage(
+      $uuid,
+      $entity->getEntityTypeId(),
+      (string)$entity->id(),
+      $entity->toUrl('canonical', ['absolute' => TRUE])->toString(),
+    );
+  }
+  catch (Exception $e) {
+    Drupal::logger('assetkiwi_connect')->warning('Failed to track usage for @uuid: @message', [
+      '@uuid' => $uuid,
+      '@message' => $e->getMessage(),
+    ]);
+  }
+}
+
+/**
+ * Removes asset usage from Asset.Kiwi for media entities.
+ */
+function _assetkiwi_connect_remove_usage(EntityInterface $entity): void {
+  if ($entity->getEntityTypeId() !== 'media') {
+    return;
+  }
+
+  if (!$entity->hasField('field_assetkiwi_uuid')) {
+    return;
+  }
+
+  $uuid = $entity->get('field_assetkiwi_uuid')->getString();
+  if (empty($uuid)) {
+    return;
+  }
+
+  try {
+    /** @var \Drupal\assetkiwi_connect\Client\AssetKiwiClient $client */
+    $client = Drupal::service('assetkiwi_connect.client');
+    $client->removeUsage(
+      $uuid,
+      $entity->getEntityTypeId(),
+      (string)$entity->id(),
+    );
+  }
+  catch (Exception $e) {
+    Drupal::logger('assetkiwi_connect')->warning('Failed to remove usage for @uuid: @message', [
+      '@uuid' => $uuid,
+      '@message' => $e->getMessage(),
+    ]);
+  }
+}

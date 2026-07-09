@@ -1,0 +1,141 @@
+/**
+ * @file
+ * AssetKiwi field widget styles.
+ *
+ * Styles for the DAM asset reference widget on entity forms.
+ * Compatible with Drupal Claro/Olivero admin themes.
+ */
+
+/* CSS custom properties inherited from assetkiwi-variables.css */
+.assetkiwi-widget-preview {
+  margin: 8px 0 12px;
+  padding: 16px;
+  border: 1px solid var(--dam-border-light);
+  border-radius: var(--dam-radius);
+  background: var(--dam-bg-subtle);
+  min-height: 64px;
+  transition: border-color var(--dam-transition), background var(--dam-transition);
+}
+
+/* When an asset is selected, elevate the preview */
+.assetkiwi-widget-preview:has(.assetkiwi-widget-selected) {
+  background: #fff;
+  border-color: var(--dam-border);
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06);
+}
+
+/* ── Selected asset layout ─────────────────────────────────────────────────── */
+.assetkiwi-widget-selected {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* ── Thumbnail ─────────────────────────────────────────────────────────────── */
+.assetkiwi-widget-thumb {
+  width: 120px;
+  height: 80px;
+  border-radius: 6px;
+  border: 1px solid var(--dam-border-light);
+  object-fit: cover;
+  background: var(--dam-bg-subtle);
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06);
+  flex-shrink: 0;
+  transition: box-shadow var(--dam-transition);
+}
+
+.assetkiwi-widget-thumb:hover {
+  box-shadow: 0 3px 8px rgba(16, 24, 40, 0.1);
+}
+
+/* ── Asset info ────────────────────────────────────────────────────────────── */
+.assetkiwi-widget-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.assetkiwi-widget-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--dam-text);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assetkiwi-widget-uuid-label {
+  font-size: 11px;
+  color: var(--dam-text-muted);
+  font-family: "SF Mono", "Cascadia Code", "Fira Code", Menlo, Consolas, monospace;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Also style the server-rendered selected state */
+.assetkiwi-widget-uuid {
+  font-size: 13px;
+  color: var(--dam-text-secondary);
+}
+
+/* ── Empty state ───────────────────────────────────────────────────────────── */
+.assetkiwi-widget-empty {
+  color: var(--dam-text-muted);
+  font-size: 13px;
+  font-style: italic;
+  text-align: center;
+  padding: 12px 0;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────────── */
+.assetkiwi-browse-btn {
+  margin-right: 8px !important;
+  font-weight: 600;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+/* ── Dialog overrides ──────────────────────────────────────────────────────── */
+#assetkiwi-browser-dialog {
+  padding: 0 !important;
+}
+
+/* Clean up jQuery UI dialog chrome */
+.ui-dialog:has(#assetkiwi-browser-dialog) {
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(16, 24, 40, 0.18), 0 0 0 1px rgba(16, 24, 40, 0.06);
+}
+
+.ui-dialog:has(#assetkiwi-browser-dialog) .ui-dialog-titlebar {
+  border-bottom: 1px solid #e6eaf0;
+  padding: 14px 20px;
+  background: #f7f9fc;
+}
+
+.ui-dialog:has(#assetkiwi-browser-dialog) .ui-dialog-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1d2939;
+}
+
+/* Fallback for browsers without :has() — dialog inner padding */
+#assetkiwi-browser-dialog .assetkiwi-browser {
+  padding: 20px 24px 24px;
+}
+
+/* ── Server-rendered thumbnail in widget ───────────────────────────────────── */
+.assetkiwi-widget-thumbnail img {
+  width: 120px;
+  height: 80px;
+  border-radius: 6px;
+  border: 1px solid var(--dam-border-light, #e6eaf0);
+  object-fit: cover;
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06);
+}
