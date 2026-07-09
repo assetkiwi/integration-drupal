@@ -1,0 +1,132 @@
+<?php
+
+declare(strict_types=1);
+
+use Drupal\Core\File\FileSystemInterface;
+
+/**
+ * Implements hook_schema().
+ *
+ * This table is the migration's audit log: every state transition an item
+ * goes through is recorded here explicitly, not inferred from Drupal entity
+ * state after the fact. It is the source of truth for idempotency (skip
+ * already-offloaded items), resumability (pick up where a run left off), and
+ * the purge step's safety check (only ever purge items this table says are
+ * offloaded).
+ */
+function assetkiwi_connect_migrate_schema(): array {
+  $schema['assetkiwi_migrate_status'] = [
+    'description' => 'Tracks per-entity migration status from local storage to asset.kiwi.',
+    'fields' => [
+      'id' => [
+        'type' => 'serial',
+        'not null' => TRUE,
+      ],
+      'entity_type' => [
+        'type' => 'varchar_ascii',
+        'length' => 64,
+        'not null' => TRUE,
+        'default' => 'media',
+        'description' => 'The entity type being tracked (always "media" for v1).',
+      ],
+      'entity_id' => [
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ],
+      'status' => [
+        'type' => 'varchar_ascii',
+        'length' => 32,
+        'not null' => TRUE,
+        'default' => 'pending',
+        'description' => 'pending|uploading|uploaded|verified|offloaded|failed|purged',
+      ],
+      'assetkiwi_uuid' => [
+        'type' => 'varchar_ascii',
+        'length' => 36,
+        'not null' => FALSE,
+      ],
+      'file_hash' => [
+        'type' => 'varchar_ascii',
+        'length' => 64,
+        'not null' => FALSE,
+        'description' => 'sha256 of the local file at the time it was processed.',
+      ],
+      'local_uri' => [
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+        'description' => 'The local file URI at scan/process time — kept for audit even after purge.',
+      ],
+      'error_message' => [
+        'type' => 'text',
+        'size' => 'medium',
+        'not null' => FALSE,
+      ],
+      'attempted_at' => [
+        'type' => 'int',
+        'not null' => FALSE,
+        'description' => 'Unix timestamp of the last processing attempt.',
+      ],
+      'completed_at' => [
+        'type' => 'int',
+        'not null' => FALSE,
+        'description' => 'Unix timestamp the item reached a terminal state (offloaded/purged/failed).',
+      ],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'entity' => ['entity_type', 'entity_id'],
+    ],
+    'indexes' => [
+      'status' => ['status'],
+      'uuid' => ['assetkiwi_uuid'],
+    ],
+  ];
+
+  return $schema;
+}
+
+/**
+ * Implements hook_uninstall().
+ *
+ * hook_schema()-defined tables are dropped automatically once this returns,
+ * destroying the migration's entire audit trail. Export it to a permanent
+ * CSV first so that history survives the module's removal even though the
+ * table itself does not. MigrationUninstallValidator already refuses to let
+ * uninstall reach this point while any tracked item still depends on this
+ * module to render or resume correctly — this export is a last-resort safety
+ * net for whatever is left (offloaded-with-local-file-intact, or failed).
+ */
+function assetkiwi_connect_migrate_uninstall(): void {
+  $database = \Drupal::database();
+  if (!$database->schema()->tableExists('assetkiwi_migrate_status')) {
+    return;
+  }
+
+  $rows = $database->select('assetkiwi_migrate_status', 's')
+    ->fields('s')
+    ->execute()
+    ->fetchAll(\PDO::FETCH_ASSOC);
+  if (empty($rows)) {
+    return;
+  }
+
+  $fileSystem = \Drupal::service('file_system');
+  $directory = 'public://assetkiwi_migrate_audit';
+  $fileSystem->prepareDirectory($directory, FileSystemInterface::CREATE_DIRECTORY);
+
+  $filename = $directory . '/migrate-status-' . date('Ymd-His') . '.csv';
+  $realpath = $fileSystem->realpath($filename);
+  $handle = fopen($realpath, 'w');
+  fputcsv($handle, array_keys(reset($rows)));
+  foreach ($rows as $row) {
+    fputcsv($handle, $row);
+  }
+  fclose($handle);
+
+  \Drupal::messenger()->addStatus(t('The asset.kiwi migration tracking table (@count row(s)) was exported to @path before being removed.', [
+    '@count' => count($rows),
+    '@path' => $filename,
+  ]));
+}

@@ -1,0 +1,21 @@
+{
+    "name": "assetkiwi/integration-drupal",
+    "description": "Connects to asset.kiwi digital asset management platform with asset browsing, usage tracking, webhook sync, and image formatting.",
+    "type": "drupal-module",
+    "license": "GPL-2.0-or-later",
+    "homepage": "https://asset.kiwi",
+    "support": {
+        "issues": "https://github.com/assetkiwi/integration-drupal/issues",
+        "source": "https://github.com/assetkiwi/integration-drupal"
+    },
+    "require": {
+        "php": ">=8.3",
+        "drupal/core": "^11"
+    },
+    "suggest": {
+        "drush/drush": "^13: enables the assetkiwi:import-assets command"
+    },
+    "extra": {
+        "installer-name": "assetkiwi_connect"
+    }
+}

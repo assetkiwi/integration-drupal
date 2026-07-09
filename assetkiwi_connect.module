@@ -1,0 +1,94 @@
+<?php
+
+declare(strict_types=1);
+
+/**
+ * @file
+ * Hooks for the assetkiwi_connect module.
+ *
+ * The real hook logic lives in \Drupal\assetkiwi_connect\Hook\AssetkiwiConnectHooks,
+ * implemented via the #[Hook] attribute (Drupal >=11.1). The procedural
+ * stubs below are marked #[LegacyHook] so Drupal >=11.1 skips them (only the
+ * class method runs); they only actually execute on Drupal 10.1-11.0, which
+ * predates attribute-based hook discovery, and simply delegate to the same
+ * service so the behavior is identical either way.
+ */
+
+use Drupal\Core\Entity\EntityInterface;
+use Drupal\Core\Hook\Attribute\LegacyHook;
+use Drupal\Core\Routing\RouteMatchInterface;
+use Drupal\assetkiwi_connect\Hook\AssetkiwiConnectHooks;
+
+/**
+ * Implements hook_help().
+ */
+#[LegacyHook]
+function assetkiwi_connect_help(string $route_name, RouteMatchInterface $route_match): string {
+  return \Drupal::service(AssetkiwiConnectHooks::class)->help($route_name, $route_match);
+}
+
+/**
+ * Implements hook_entity_insert().
+ */
+#[LegacyHook]
+function assetkiwi_connect_entity_insert(EntityInterface $entity): void {
+  \Drupal::service(AssetkiwiConnectHooks::class)->entityInsert($entity);
+}
+
+/**
+ * Implements hook_entity_update().
+ */
+#[LegacyHook]
+function assetkiwi_connect_entity_update(EntityInterface $entity): void {
+  \Drupal::service(AssetkiwiConnectHooks::class)->entityUpdate($entity);
+}
+
+/**
+ * Implements hook_entity_delete().
+ */
+#[LegacyHook]
+function assetkiwi_connect_entity_delete(EntityInterface $entity): void {
+  \Drupal::service(AssetkiwiConnectHooks::class)->entityDelete($entity);
+}
+
+/**
+ * Implements hook_page_attachments().
+ *
+ * On asset.kiwi-related routes in per-user OAuth mode, warns the current
+ * user if they have not yet connected their account and provides a link to
+ * begin the OAuth2 authorization flow.
+ */
+#[LegacyHook]
+function assetkiwi_connect_page_attachments(array &$attachments): void {
+  // Only on asset.kiwi related routes.
+  $route = \Drupal::routeMatch()->getRouteName();
+  if (strpos($route, 'assetkiwi') === FALSE
+    && strpos($route, 'media_library') === FALSE
+    && strpos($route, '.edit_form') === FALSE) {
+    return;
+  }
+
+  $config = \Drupal::config('assetkiwi_connect.settings');
+  if ($config->get('oauth_mode') !== 'per_user') {
+    return;
+  }
+
+  $uid = \Drupal::currentUser()->id();
+  if (!$uid) {
+    return;
+  }
+
+  $userData = \Drupal::service('user.data');
+  $token = $userData->get('assetkiwi_connect', (int) $uid, 'oauth_access_token');
+
+  if (!$token) {
+    $oauthManager = \Drupal::service('assetkiwi_connect.oauth_manager');
+    $authorizeUrl = $oauthManager->getAuthorizationUrl();
+
+    \Drupal::messenger()->addWarning(
+      t('Your asset.kiwi account is not connected. <a href=":url">Connect now</a> to access your assets.', [
+        ':url' => $authorizeUrl,
+      ])
+    );
+  }
+}

@@ -1,0 +1,10 @@
+assetkiwi_connect_migrate.overview_tab:
+  title: 'Migrate'
+  route_name: assetkiwi_connect_migrate.overview
+  base_route: assetkiwi_connect_migrate.overview
+
+assetkiwi_connect_migrate.purge_tab:
+  title: 'Purge'
+  route_name: assetkiwi_connect_migrate.purge
+  base_route: assetkiwi_connect_migrate.overview
+  weight: 10

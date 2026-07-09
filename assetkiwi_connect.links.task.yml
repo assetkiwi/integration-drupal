@@ -1,0 +1,4 @@
+assetkiwi_connect.settings:
+  title: 'Settings'
+  route_name: assetkiwi_connect.settings
+  base_route: assetkiwi_connect.settings

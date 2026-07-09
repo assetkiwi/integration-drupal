@@ -1,0 +1,21 @@
+/**
+ * @file
+ * AssetKiwi media library add form styles.
+ *
+ * The picker widget itself is styled by assetkiwi-picker.css; this file only
+ * covers the form wrapper it's mounted into.
+ */
+.assetkiwi-ml-picker {
+  margin-bottom: 16px;
+}
+
+/*
+ * The programmatic-only confirm trigger (AssetKiwiAddForm::buildInputElement())
+ * relies on the native `hidden` attribute, but that's just a UA-stylesheet
+ * `display: none` — any theme rule that sets `display` on submit buttons
+ * (common in admin themes) silently overrides it with lower specificity but
+ * higher source order. Force it here so it never becomes clickable directly.
+ */
+.assetkiwi-ml-bulk-import-trigger {
+  display: none !important;
+}

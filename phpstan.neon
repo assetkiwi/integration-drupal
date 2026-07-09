@@ -1,0 +1,14 @@
+parameters:
+  level: 1
+  paths:
+    - .
+  excludePaths:
+    - node_modules
+    - tests
+  scanFiles:
+    - vendor/autoload.php
+  ignoreErrors:
+    # Drupal static calls are expected in .module files
+    - '#Call to static method Drupal::service\(\)#'
+    # Drupal's container methods return mixed
+    - '#Method Drupal\\KernelTests\\KernelTestBase::createKernelRouter\(\)#'

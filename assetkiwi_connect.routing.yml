@@ -1,0 +1,58 @@
+assetkiwi_connect.settings:
+  path: '/admin/config/media/assetkiwi'
+  defaults:
+    _form: '\Drupal\assetkiwi_connect\Form\SettingsForm'
+    _title: 'asset.kiwi Settings'
+  requirements:
+    _permission: 'administer assetkiwi'
+
+assetkiwi_connect.settings.oauth_users:
+  path: '/admin/config/media/assetkiwi/oauth-users'
+  defaults:
+    _form: '\Drupal\assetkiwi_connect\Form\AssetKiwiOauthUsersForm'
+    _title: 'asset.kiwi oauth users'
+  requirements:
+    _permission: 'administer assetkiwi'
+
+assetkiwi_connect.oauth_users.revoke:
+  path: '/admin/config/media/assetkiwi/oauth-users/revoke/{uid}'
+  defaults:
+    _controller: '\Drupal\assetkiwi_connect\Controller\OAuthUsersController::revoke'
+  requirements:
+    _permission: 'administer assetkiwi'
+    uid: '\d+'
+  methods: [ POST ]
+
+assetkiwi_connect.api.assets:
+  path: '/admin/assetkiwi/api/assets'
+  defaults:
+    _controller: '\Drupal\assetkiwi_connect\Controller\AssetBrowserController::assets'
+  requirements:
+    _permission: 'browse assetkiwi assets'
+  options:
+    no_cache: TRUE
+
+assetkiwi_connect.api.facets:
+  path: '/admin/assetkiwi/api/facets'
+  defaults:
+    _controller: '\Drupal\assetkiwi_connect\Controller\AssetBrowserController::facets'
+  requirements:
+    _permission: 'browse assetkiwi assets'
+  options:
+    no_cache: TRUE
+
+assetkiwi_connect.oauth.callback:
+  path: '/assetkiwi/oauth/callback'
+  defaults:
+    _controller: '\Drupal\assetkiwi_connect\Controller\OAuthController::callback'
+    _title: 'AssetKiwi OAuth Callback'
+  requirements:
+    _permission: 'access content'
+
+assetkiwi_connect.webhook:
+  path: '/assetkiwi/webhook'
+  defaults:
+    _controller: '\Drupal\assetkiwi_connect\Controller\WebhookController::receive'
+  requirements:
+    _access: 'TRUE'
+  methods: [ POST ]

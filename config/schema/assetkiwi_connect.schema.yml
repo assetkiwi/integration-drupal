@@ -1,0 +1,56 @@
+assetkiwi_connect.settings:
+  type: config_object
+  label: 'asset.kiwi Connect settings'
+  mapping:
+    api_url:
+      type: string
+      label: 'API base URL'
+    api_token:
+      type: string
+      label: 'API token'
+    cache_lifetime:
+      type: integer
+      label: 'Cache lifetime (seconds)'
+    webhook_secret:
+      type: string
+      label: 'Webhook secret'
+    serve_from_cdn:
+      type: boolean
+      label: 'Serve assets directly from asset.kiwi'
+    allow_upload:
+      type: boolean
+      label: 'Allow uploading to asset.kiwi'
+    image_style_mapping:
+      type: mapping
+      label: 'Image style mapping'
+      mapping:
+        thumbnail:
+          type: string
+          label: 'Thumbnail'
+        medium:
+          type: string
+          label: 'Medium'
+        large:
+          type: string
+          label: 'Large'
+    oauth_mode:
+      type: string
+      label: 'Authentication mode'
+    oauth_client_id:
+      type: string
+      label: 'OAuth client ID'
+    oauth_client_secret:
+      type: string
+      label: 'OAuth client secret'
+    oauth_authorize_url:
+      type: string
+      label: 'OAuth authorize URL'
+    oauth_token_url:
+      type: string
+      label: 'OAuth token URL'
+    oauth_scopes:
+      type: sequence
+      label: 'OAuth scopes'
+      sequence:
+        type: string
+        label: 'Scope'
