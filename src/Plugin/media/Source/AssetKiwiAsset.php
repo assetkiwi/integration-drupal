@@ -6,9 +6,11 @@ namespace Drupal\assetkiwi_connect\Plugin\media\Source;
 
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\assetkiwi_connect\Client\AssetKiwiClient;
+use Drupal\assetkiwi_connect\Utility\MimeIconResolver;
 use Drupal\media\MediaInterface;
 use Drupal\media\MediaSourceBase;
 use Drupal\Core\Entity\EntityStorageInterface;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
@@ -19,6 +21,7 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
  *   label = @Translation("asset.kiwi Asset"),
  *   description = @Translation("Use assets from asset.kiwi."),
  *   allowed_field_types = {"string"},
+ *   default_thumbnail_filename = "assetkiwi.png",
  *   forms = {
  *     "media_library_add" = "\Drupal\assetkiwi_connect\Form\AssetKiwiAddForm",
  *   }
@@ -28,12 +31,18 @@ class AssetKiwiAsset extends MediaSourceBase {
 
   protected AssetKiwiClient $assetKiwiClient;
 
+  protected LoggerInterface $logger;
+
+  protected MimeIconResolver $mimeIconResolver;
+
   /**
    * {@inheritdoc}
    */
   public static function create(ContainerInterface $container, array $configuration, $plugin_id, $plugin_definition): static {
     $instance = parent::create($container, $configuration, $plugin_id, $plugin_definition);
     $instance->assetKiwiClient = $container->get('assetkiwi_connect.client');
+    $instance->logger = $container->get('logger.factory')->get('assetkiwi_connect');
+    $instance->mimeIconResolver = $container->get('assetkiwi_connect.mime_icon_resolver');
     return $instance;
   }
 
@@ -72,14 +81,26 @@ class AssetKiwiAsset extends MediaSourceBase {
       return NULL;
     }
 
-    // Drupal uses 'thumbnail_uri' to display thumbnails in the media library.
+    // Fall back to branded default icon on any thumbnail failure.
     if ($name === 'thumbnail_uri') {
-      $asset = $this->assetKiwiClient->getAsset($uuid);
-      if (empty($asset)) {
-        return NULL;
+      try {
+        $asset = $this->assetKiwiClient->getAsset($uuid);
+        if (!empty($asset)) {
+          $data = $this->assetKiwiClient->normalizeAsset($asset);
+          $thumbnail_uri = $this->getThumbnailUri($data);
+          if ($thumbnail_uri !== NULL) {
+            return $thumbnail_uri;
+          }
+        }
       }
-      $data = $this->assetKiwiClient->normalizeAsset($asset);
-      return $this->getThumbnailUri($data);
+      catch (\Throwable $e) {
+        $this->logger->warning('Could not resolve asset.kiwi thumbnail for media @id (@uuid): @message', [
+          '@id' => $media->id() ?? 'new',
+          '@uuid' => $uuid,
+          '@message' => $e->getMessage(),
+        ]);
+      }
+      return parent::getMetadata($media, $name);
     }
 
     $asset = $this->assetKiwiClient->getAsset($uuid);
@@ -109,17 +130,51 @@ class AssetKiwiAsset extends MediaSourceBase {
     };
   }
 
-  protected function getVariantUrl(array $data, string $variant_name): ?string {
-    return $this->assetKiwiClient->resolveVariantUrl($data, $variant_name);
-  }
 
   protected function getThumbnailUri(array $data): ?string {
     $uuid = $data['uuid'] ?? NULL;
-    $thumb_url = $this->assetKiwiClient->resolveVariantUrl($data, 'thumb') ?? $data['url'] ?? NULL;
+    $mime_type = $data['mime_type'] ?? $data['mimeType'] ?? '';
+
+    // Non-image assets get a stable bundled file-type icon rather than a DAM
+    // page-render preview: the preview is often blank/absent and renders as an
+    // empty thumbnail. Returning NULL here would fall back to core's branded
+    // default; a per-type icon is clearer. Returns NULL if the icon isn't
+    // present (install hook not run) so core's default still applies.
+    if (!str_starts_with($mime_type, 'image/')) {
+      return $this->fileTypeIconUri($mime_type);
+    }
+
+    // Images: real thumbnail. Prefer a generated derivative, else the original.
+    $thumb_url = $this->assetKiwiClient->resolveVariantUrl($data, 'thumb')
+      ?? $this->assetKiwiClient->resolveVariantUrl($data, 'preview')
+      ?? ($data['url'] ?? NULL);
+
     if (!$uuid || !$thumb_url) {
       return NULL;
     }
-    return $this->assetKiwiClient->cacheThumbnail($uuid, $thumb_url);
+    try {
+      return $this->assetKiwiClient->cacheThumbnail($uuid, $thumb_url);
+    }
+    catch (\Throwable $e) {
+      $this->logger->warning('Failed to cache asset.kiwi thumbnail for @uuid: @message', [
+        '@uuid' => $uuid,
+        '@message' => $e->getMessage(),
+      ]);
+      return NULL;
+    }
+  }
+
+  /**
+   * Returns the local URI of the bundled file-type icon for a MIME type.
+   *
+   * Icons are copied to public://assetkiwi_icons on install/update
+   * (_assetkiwi_connect_copy_media_icons()). Returns NULL when the icon is
+   * missing so the caller falls back to core's branded default thumbnail.
+   */
+  protected function fileTypeIconUri(string $mimeType): ?string {
+    $bucket = $this->mimeIconResolver->getIconBucket($mimeType);
+    $uri = 'public://assetkiwi_icons/' . $bucket . '.png';
+    return file_exists($uri) ? $uri : NULL;
   }
 
   /**
@@ -167,12 +222,7 @@ class AssetKiwiAsset extends MediaSourceBase {
     $this->setDefaultWidget();
   }
 
-  /**
-   * Sets the default form widget for the source field to asset.kiwi.Browser.
-   *
-   * Only sets it when the form display doesn't already have a component
-   * configured for the source field, so existing configurations are preserved.
-   */
+  /** Only sets the widget if no component is already configured. */
   protected function setDefaultWidget(): void {
     $bundle = $this->getConfiguration()['bundle'] ?? '';
     if (empty($bundle)) {

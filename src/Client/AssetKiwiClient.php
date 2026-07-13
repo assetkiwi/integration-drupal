@@ -34,8 +34,6 @@ class AssetKiwiClient {
 
   /**
    * Re-reads API URL and token from configuration.
-   *
-   * Useful after config has been updated programmatically.
    */
   public function refreshConfig(): void {
     $config = $this->configFactory->get('assetkiwi_connect.settings');
@@ -48,6 +46,22 @@ class AssetKiwiClient {
     $this->apiToken = $apiToken;
   }
 
+  /**
+   * Sends a request and decodes the JSON response.
+   */
+  private function request(string $method, string $path, array $options = []): array|null {
+    try {
+      $response = $this->httpClient->request($method, $this->apiUrl . $path, $options);
+      $body = (string)$response->getBody();
+      $data = json_decode($body, TRUE);
+      return is_array($data) ? $data : NULL;
+    }
+    catch (GuzzleException $e) {
+      $this->lastError = $e->getMessage();
+      return NULL;
+    }
+  }
+
   protected function defaultHeaders(): array {
     return [
       'Authorization' => 'Bearer ' . $this->apiToken,
@@ -56,70 +70,47 @@ class AssetKiwiClient {
   }
 
   public function getAssets(array $params = []): array {
-    // Fix: asset.kiwi uses 'type' for category filtering (image|video|audio|document|other),
-    // not 'mime_type'. The 'document' value in particular maps to multiple MIME types
-    // (application/pdf, application/msword, etc.) so passing it as mime_type breaks.
+    // Map 'mime_type' to the API's 'type' param for category filtering.
     if (isset($params['mime_type']) && in_array($params['mime_type'], ['image', 'video', 'audio', 'document', 'other'], TRUE)) {
       $params['type'] = $params['mime_type'];
       unset($params['mime_type']);
     }
-    try {
-      $response = $this->httpClient->request('GET', $this->apiUrl . '/api/v1/assets', [
-        'headers' => $this->defaultHeaders(),
-        'query' => $params,
-      ]);
-      return $this->decodeResponse($response);
-    }
-    catch (GuzzleException $e) {
-      $this->lastError = $e->getMessage();
-      $this->logger->error('Failed to fetch assets: @message', ['@message' => $e->getMessage()]);
-      return [];
-    }
+    $result = $this->request('GET', '/api/v1/assets', ['headers' => $this->defaultHeaders(), 'query' => $params]);
+    return is_array($result) ? $result : [];
   }
 
   public function getAsset(string $uuid): array {
-    try {
-      $response = $this->httpClient->request('GET', $this->apiUrl . '/api/v1/assets/' . $uuid, [
-        'headers' => $this->defaultHeaders(),
-      ]);
-      return $this->decodeResponse($response);
-    }
-    catch (GuzzleException $e) {
-      $this->lastError = $e->getMessage();
-      $this->logger->error('Failed to fetch asset @uuid: @message', [
-        '@uuid' => $uuid,
-        '@message' => $e->getMessage(),
-      ]);
-      return [];
-    }
+    $result = $this->request('GET', '/api/v1/assets/' . $uuid, ['headers' => $this->defaultHeaders()]);
+    return is_array($result) ? $result : [];
   }
 
   public function getCollections(): array {
-    try {
-      $response = $this->httpClient->request('GET', $this->apiUrl . '/api/v1/collections', [
-        'headers' => $this->defaultHeaders(),
-      ]);
-      return $this->decodeResponse($response);
-    }
-    catch (GuzzleException $e) {
-      $this->lastError = $e->getMessage();
-      $this->logger->error('Failed to fetch collections: @message', ['@message' => $e->getMessage()]);
-      return [];
-    }
+    $result = $this->request('GET', '/api/v1/collections', ['headers' => $this->defaultHeaders()]);
+    return is_array($result) ? $result : [];
   }
 
   public function getTags(): array {
-    try {
-      $response = $this->httpClient->request('GET', $this->apiUrl . '/api/v1/tags', [
-        'headers' => $this->defaultHeaders(),
-      ]);
-      return $this->decodeResponse($response);
-    }
-    catch (GuzzleException $e) {
-      $this->lastError = $e->getMessage();
-      $this->logger->error('Failed to fetch tags: @message', ['@message' => $e->getMessage()]);
-      return [];
-    }
+    $result = $this->request('GET', '/api/v1/tags', ['headers' => $this->defaultHeaders()]);
+    return is_array($result) ? $result : [];
+  }
+
+  /**
+   * Returns the image styles (variant presets) defined in asset.kiwi.
+   *
+   * @return array
+   */
+  public function getImageStyles(): array {
+    $result = $this->request('GET', '/api/v1/image-styles', ['headers' => $this->defaultHeaders()]);
+    return is_array($result) ? $result : [];
+  }
+
+  /**
+   * Whether to reference assets from the CDN instead of storing them locally.
+   */
+  public function shouldServeFromCdn(): bool {
+    $config = $this->configFactory->get('assetkiwi_connect.settings');
+    $value = $config->get('serve_from_cdn');
+    return $value === NULL ? TRUE : (bool)$value;
   }
 
   public function downloadAsset(string $uuid): ?ResponseInterface {
@@ -141,6 +132,39 @@ class AssetKiwiClient {
 
   public function normalizeAsset(array $asset): array {
     return $asset['data'] ?? $asset;
+  }
+
+  /**
+   * Normalizes an asset record into the flat shape the picker widget consumes.
+   *
+   * Consolidates the field-fallback logic that used to be duplicated across
+   * the Twig browser template, AssetKiwiAddForm, and AssetBrowserController.
+   *
+   * @return array
+   */
+  public function toPickerAsset(array $asset): array {
+    $data = $this->normalizeAsset($asset);
+
+    $mime = $data['mime_type'] ?? $data['mimeType'] ?? '';
+    $url = $data['url'] ?? $data['download_url'] ?? NULL;
+
+    // Fall back to original for images only — non-image blobs aren't usable as <img> src.
+    $thumbUrl = $this->resolveVariantUrl($data, 'thumb')
+      ?? $this->resolveVariantUrl($data, 'preview');
+    if ($thumbUrl === NULL && str_starts_with($mime, 'image/')) {
+      $thumbUrl = $url;
+    }
+
+    return [
+      'uuid' => $data['uuid'] ?? $data['id'] ?? '',
+      'name' => $this->getAssetDisplayName($data),
+      'mime' => $mime,
+      'size' => $data['size'] ?? $data['file_size'] ?? NULL,
+      'width' => $data['width'] ?? NULL,
+      'height' => $data['height'] ?? NULL,
+      'thumbUrl' => $thumbUrl,
+      'url' => $url,
+    ];
   }
 
   public function getAssetDisplayName(array $asset): string {
@@ -181,7 +205,14 @@ class AssetKiwiClient {
 
   public function cacheThumbnail(string $uuid, string $url): ?string {
     $directory = 'public://assetkiwi_thumbnails';
-    $this->fileSystem->prepareDirectory($directory, FileSystemInterface::CREATE_DIRECTORY);
+    if (!$this->fileSystem->prepareDirectory($directory, FileSystemInterface::CREATE_DIRECTORY | FileSystemInterface::MODIFY_PERMISSIONS)) {
+      $this->lastError = 'Could not prepare thumbnail directory: ' . $directory;
+      $this->logger->warning('Could not prepare thumbnail directory @dir for asset @uuid.', [
+        '@dir' => $directory,
+        '@uuid' => $uuid,
+      ]);
+      return NULL;
+    }
 
     $extension = pathinfo(parse_url($url, PHP_URL_PATH) ?: '', PATHINFO_EXTENSION) ?: 'jpg';
     $destination = $directory . '/' . $uuid . '.' . $extension;
@@ -196,14 +227,19 @@ class AssetKiwiClient {
 
     try {
       $response = $this->httpClient->request('GET', $url, [
-        'headers' => $this->defaultHeaders(),
         'timeout' => 10,
       ]);
       $data = (string)$response->getBody();
-      if (!empty($data)) {
-        $this->fileSystem->saveData($data, $destination, FileSystemInterface::EXISTS_REPLACE);
-        return $destination;
+      if ($data === '') {
+        $this->lastError = 'Empty thumbnail response for asset ' . $uuid;
+        $this->logger->warning('Empty thumbnail response for asset @uuid from @url.', [
+          '@uuid' => $uuid,
+          '@url' => $url,
+        ]);
+        return NULL;
       }
+      $this->fileSystem->saveData($data, $destination, FileSystemInterface::EXISTS_REPLACE);
+      return $destination;
     }
     catch (GuzzleException $e) {
       $this->lastError = $e->getMessage();
@@ -212,12 +248,19 @@ class AssetKiwiClient {
         '@message' => $e->getMessage(),
       ]);
     }
+    catch (\Throwable $e) {
+      $this->lastError = $e->getMessage();
+      $this->logger->warning('Unexpected error caching thumbnail for @uuid: @message', [
+        '@uuid' => $uuid,
+        '@message' => $e->getMessage(),
+      ]);
+    }
     return NULL;
   }
 
   public function reportUsage(string $uuid, string $entityType, string $entityId, ?string $url = NULL): void {
+    $host = $this->requestStack->getCurrentRequest()?->getHost() ?? '';
     try {
-      $host = $this->requestStack->getCurrentRequest()?->getHost() ?? '';
       $this->httpClient->request('POST', $this->apiUrl . '/api/v1/assets/' . $uuid . '/usage', [
         'headers' => $this->defaultHeaders(),
         'json' => [
@@ -238,8 +281,8 @@ class AssetKiwiClient {
   }
 
   public function removeUsage(string $uuid, string $entityType, string $entityId): void {
+    $host = $this->requestStack->getCurrentRequest()?->getHost() ?? '';
     try {
-      $host = $this->requestStack->getCurrentRequest()?->getHost() ?? '';
       $this->httpClient->request('DELETE', $this->apiUrl . '/api/v1/assets/' . $uuid . '/usage', [
         'headers' => $this->defaultHeaders(),
         'json' => [
@@ -264,40 +307,32 @@ class AssetKiwiClient {
    * @return array{uri: string, fid: int}|null
    */
   public function downloadAssetFile(string $uuid, string $destinationDir = 'public://assetkiwi_files'): ?array {
-    // 1. Get asset metadata to find the original filename and URL
+    // Download and store the original file from asset.kiwi.
     $asset = $this->getAsset($uuid);
     if (empty($asset)) {
       return NULL;
     }
     $data = $this->normalizeAsset($asset);
 
-    // 2. Get download URL from the asset
     $downloadUrl = $data['url'] ?? $data['download_url'] ?? NULL;
     if (!$downloadUrl) {
       return NULL;
     }
 
-    // 3. Prepare destination directory
     $this->fileSystem->prepareDirectory($destinationDir, FileSystemInterface::CREATE_DIRECTORY);
 
-    // 4. Get original filename (sanitize)
     $originalName = $this->getAssetDisplayName($data);
     $extension = pathinfo(parse_url($downloadUrl, PHP_URL_PATH) ?: $originalName, PATHINFO_EXTENSION);
     $safeFilename = preg_replace('/[^a-zA-Z0-9_-]/', '_', pathinfo($originalName, PATHINFO_FILENAME));
     $destination = $destinationDir . '/' . $safeFilename . '_' . substr($uuid, 0, 8) . '.' . ($extension ?: 'bin');
 
-    // 5. Download the file
     try {
-      $response = $this->httpClient->request('GET', $downloadUrl, [
-        'headers' => $this->defaultHeaders(),
-        'timeout' => 30,
-      ]);
+      $response = $this->httpClient->request('GET', $downloadUrl, ['timeout' => 30]);
       $data = (string)$response->getBody();
       if (empty($data)) {
         return NULL;
       }
 
-      // 6. Save as managed file
       $file = \Drupal::service('file.repository')->writeData($data, $destination, FileSystemInterface::EXISTS_REPLACE);
       if ($file) {
         $file->setPermanent();
@@ -319,9 +354,6 @@ class AssetKiwiClient {
     return NULL;
   }
 
-  /**
-   * Returns the last error message, or NULL if no error occurred.
-   */
   public function getLastError(): ?string {
     return $this->lastError;
   }

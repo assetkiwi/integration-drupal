@@ -1,36 +1,10 @@
 <?php
 
-/**
- * @file
- * Hook implementations for Asset.Kiwi Connect.
- */
-
 declare(strict_types=1);
 
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Routing\RouteMatchInterface;
 use Drupal\Core\Url;
-
-/**
- * Implements hook_theme().
- */
-function assetkiwi_connect_theme(): array {
-  return [
-    'assetkiwi_asset_browser' => [
-      'variables' => [
-        'assets' => [],
-        'collections' => [],
-        'tags' => [],
-        'filters' => [],
-        'pager' => [],
-        'type_options' => [],
-        'show_type_filter' => TRUE,
-        'allowed_types' => [],
-      ],
-      'template' => 'assetkiwi-asset-browser',
-    ],
-  ];
-}
 
 /**
  * Implements hook_help().

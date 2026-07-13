@@ -1,0 +1,92 @@
+<?php
+
+declare(strict_types=1);
+
+use Drupal\Core\File\FileSystemInterface;
+
+/**
+ * Implements hook_install().
+ */
+function assetkiwi_connect_install(): void {
+  _assetkiwi_connect_copy_media_icons();
+  _assetkiwi_connect_copy_file_type_icons();
+}
+
+/**
+ * Copies the branded asset.kiwi icon for existing installations.
+ */
+function assetkiwi_connect_update_10001(): void {
+  _assetkiwi_connect_copy_media_icons();
+}
+
+/**
+ * Copies the file-type icons used for non-image media thumbnails.
+ */
+function assetkiwi_connect_update_10002(): void {
+  _assetkiwi_connect_copy_file_type_icons();
+}
+
+/**
+ * Copies the bundled raster file-type icons into public://assetkiwi_icons.
+ *
+ * These back the thumbnail for non-image media (AssetKiwiAsset::getThumbnailUri)
+ * — image styles can't process the SVG originals, so PNG copies are shipped.
+ */
+function _assetkiwi_connect_copy_file_type_icons(): void {
+  /** @var \Drupal\Core\File\FileSystemInterface $file_system */
+  $file_system = \Drupal::service('file_system');
+
+  $source = \Drupal::service('extension.list.module')->getPath('assetkiwi_connect') . '/images/icons/png';
+  $destination = 'public://assetkiwi_icons';
+
+  if (!$file_system->prepareDirectory($destination, FileSystemInterface::CREATE_DIRECTORY | FileSystemInterface::MODIFY_PERMISSIONS)) {
+    \Drupal::logger('assetkiwi_connect')->warning('Could not prepare file-type icon directory @dir.', ['@dir' => $destination]);
+    return;
+  }
+
+  $files = $file_system->scanDirectory($source, '/\.png$/');
+  foreach ($files as $file) {
+    try {
+      $file_system->copy($file->uri, $destination . '/' . $file->filename, FileSystemInterface::EXISTS_REPLACE);
+    }
+    catch (\Throwable $e) {
+      \Drupal::logger('assetkiwi_connect')->warning('Could not copy file-type icon @file: @message', [
+        '@file' => $file->filename,
+        '@message' => $e->getMessage(),
+      ]);
+    }
+  }
+}
+
+/**
+ * Copies the module's media icon(s) into the media icon_base_uri directory.
+ */
+function _assetkiwi_connect_copy_media_icons(): void {
+  /** @var \Drupal\Core\File\FileSystemInterface $file_system */
+  $file_system = \Drupal::service('file_system');
+
+  $source = \Drupal::service('extension.list.module')->getPath('assetkiwi_connect') . '/images';
+  $destination = (string) \Drupal::config('media.settings')->get('icon_base_uri');
+  if ($destination === '') {
+    return;
+  }
+
+  if (!$file_system->prepareDirectory($destination, FileSystemInterface::CREATE_DIRECTORY | FileSystemInterface::MODIFY_PERMISSIONS)) {
+    \Drupal::logger('assetkiwi_connect')->warning('Could not prepare media icon directory @dir.', ['@dir' => $destination]);
+    return;
+  }
+
+  $files = $file_system->scanDirectory($source, '/^assetkiwi\.(png|jpe?g|gif|svg)$/');
+  foreach ($files as $file) {
+    $target = $destination . '/' . $file->filename;
+    try {
+      $file_system->copy($file->uri, $target, FileSystemInterface::EXISTS_REPLACE);
+    }
+    catch (\Throwable $e) {
+      \Drupal::logger('assetkiwi_connect')->warning('Could not copy media icon @file: @message', [
+        '@file' => $file->filename,
+        '@message' => $e->getMessage(),
+      ]);
+    }
+  }
+}

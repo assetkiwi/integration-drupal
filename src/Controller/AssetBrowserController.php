@@ -6,14 +6,16 @@ namespace Drupal\assetkiwi_connect\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\assetkiwi_connect\Client\AssetKiwiClient;
+use Drupal\assetkiwi_connect\ExistingMediaResolver;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\Response;
 
 class AssetBrowserController extends ControllerBase {
 
   protected AssetKiwiClient $assetKiwiClient;
+
+  protected ExistingMediaResolver $existingMediaResolver;
 
   /**
    * {@inheritdoc}
@@ -21,123 +23,102 @@ class AssetBrowserController extends ControllerBase {
   public static function create(ContainerInterface $container): static {
     $instance = parent::create($container);
     $instance->assetKiwiClient = $container->get('assetkiwi_connect.client');
+    $instance->existingMediaResolver = $container->get('assetkiwi_connect.existing_media_resolver');
     return $instance;
   }
 
-  public function browse(Request $request): array|Response {
-    // Parse the allowed_types restriction passed from the widget/media type.
+  /**
+   * Returns a filtered, paginated, JSON-normalized list of assets.
+   *
+   * Backs the asset.kiwi picker widget (js/assetkiwi-picker.js). The API
+   * token stays server-side here — the browser never talks to asset.kiwi
+   * directly.
+   */
+  public function assets(Request $request): JsonResponse {
     $allowed_types_param = $request->query->get('allowed_types', '');
     $allowed_types = array_filter(array_map('trim', explode(',', $allowed_types_param)));
 
-    $user_mime_type = $request->query->get('mime_type', '');
+    $user_type = $request->query->get('type', $request->query->get('mime_type', ''));
 
-    // Determine the effective type filter as the intersection of what the
-    // user has chosen and what the media type configuration permits.
-    $effective_mime_type = $user_mime_type;
-    if (!empty($allowed_types) && !empty($user_mime_type)) {
-      if (!in_array($user_mime_type, $allowed_types, TRUE)) {
-        $effective_mime_type = '';
+    // Intersection of user choice and media type configuration.
+    $effective_type = $user_type;
+    if (!empty($allowed_types) && !empty($user_type)) {
+      if (!in_array($user_type, $allowed_types, TRUE)) {
+        $effective_type = '';
       }
     }
-    elseif (!empty($allowed_types) && empty($user_mime_type) && count($allowed_types) === 1) {
-      // Single allowed type — apply automatically.
-      $effective_mime_type = reset($allowed_types);
+    elseif (!empty($allowed_types) && empty($user_type) && count($allowed_types) === 1) {
+      $effective_type = reset($allowed_types);
     }
 
-    $cardinality = (int)$request->query->get('cardinality', 1);
+    $page = max(1, (int)$request->query->get('page', 1));
 
     $filters = [
       'search' => $request->query->get('search', ''),
-      'type' => $effective_mime_type,
+      'type' => $effective_type,
       'collection' => $request->query->get('collection', ''),
       'tag' => $request->query->get('tag', ''),
-      'page' => max(1, (int)$request->query->get('page', 1)),
+      'page' => $page,
       'mode' => $request->query->get('mode', ''),
       'per_page' => min(100, max(1, (int)$request->query->get('per_page', 24))),
     ];
 
-    $assets = $this->assetKiwiClient->getAssets(array_filter($filters));
+    $response = $this->assetKiwiClient->getAssets(array_filter($filters));
     $apiError = $this->assetKiwiClient->getLastError();
-    $collections = $this->assetKiwiClient->getCollections();
-    $tags = $this->assetKiwiClient->getTags();
 
-    $pager = $this->assetKiwiClient->normalizePager($assets, $filters['page']);
-    $items = $assets['data'] ?? $assets;
-
-    // Build the type options for the template, restricted to allowed types
-    // when a subset is configured.
-    $all_type_options = [
-      'image' => $this->t('Images'),
-      'video' => $this->t('Video'),
-      'audio' => $this->t('Audio'),
-      'document' => $this->t('Documents'),
-    ];
-
-    if (!empty($allowed_types)) {
-      $type_options = array_intersect_key($all_type_options, array_flip($allowed_types));
-    }
-    else {
-      $type_options = $all_type_options;
+    if ($apiError) {
+      return new JsonResponse(['error' => $apiError], 502);
     }
 
-    // Re-expose user_mime_type (not the coerced value) so the template can
-    // reflect what the user actually selected in the dropdown.
-    $filters['type'] = $user_mime_type;
+    $items = $response['data'] ?? $response;
+    $pager = $this->assetKiwiClient->normalizePager($response, $page);
 
-    $build = [
-      '#theme' => 'assetkiwi_asset_browser',
-      '#assets' => $items,
-      '#collections' => $collections['data'] ?? $collections,
-      '#tags' => $tags['data'] ?? $tags,
-      '#filters' => $filters,
-      '#pager' => $pager,
-      '#type_options' => $type_options,
-      '#show_type_filter' => count($allowed_types) !== 1,
-      '#allowed_types' => $allowed_types,
-      '#api_error' => $apiError,
-      '#cardinality' => $cardinality,
-      '#cache' => ['max-age' => 0],
-      '#attached' => [
-        'library' => ['assetkiwi_connect/browser', 'assetkiwi_connect/widget'],
-      ],
-    ];
+    $data = array_values(array_map(
+      fn(array $asset): array => $this->assetKiwiClient->toPickerAsset($asset) + ['existingMediaId' => NULL],
+      $items,
+    ));
 
-    // When loaded in a modal dialog, return bare rendered HTML.
-    if ($request->query->get('modal')) {
-      $renderer = \Drupal::service('renderer');
-      $html = (string)$renderer->renderRoot($build);
-      return new Response($html);
-    }
-
-    return $build;
-  }
-
-  public function select(string $uuid): JsonResponse {
-    $asset = $this->assetKiwiClient->getAsset($uuid);
-
-    if (empty($asset)) {
-      return new JsonResponse(['error' => $this->t('Asset not found.')->render()], 404);
-    }
-
-    return new JsonResponse($asset);
-  }
-
-  public function selectMultiple(Request $request): JsonResponse {
-    $uuids = $request->request->all('uuids');
-    if (empty($uuids)) {
-      return new JsonResponse(['error' => $this->t('No assets selected.')->render()], 400);
-    }
-
-    $assets = [];
-    foreach ($uuids as $uuid) {
-      $asset = $this->assetKiwiClient->getAsset($uuid);
-      if (!empty($asset)) {
-        $data = $this->assetKiwiClient->normalizeAsset($asset);
-        $assets[] = $data;
+    // Dedup against local media entities when browsing for a specific bundle.
+    $bundle = $request->query->get('bundle', '');
+    if ($bundle !== '') {
+      $media_type = $this->entityTypeManager()->getStorage('media_type')->load($bundle);
+      if ($media_type) {
+        $existing = $this->existingMediaResolver->findExisting($media_type, array_column($data, 'uuid'));
+        foreach ($data as &$asset) {
+          $asset['existingMediaId'] = $existing[$asset['uuid']] ?? NULL;
+        }
+        unset($asset);
       }
     }
 
-    return new JsonResponse(['assets' => $assets]);
+    return new JsonResponse([
+      'data' => $data,
+      'meta' => $pager,
+    ]);
+  }
+
+  /**
+   * Returns collections and tags for the picker widget's filter dropdowns.
+   */
+  public function facets(): JsonResponse {
+    $collections = $this->assetKiwiClient->getCollections();
+    $tags = $this->assetKiwiClient->getTags();
+    $apiError = $this->assetKiwiClient->getLastError();
+
+    if ($apiError) {
+      return new JsonResponse(['error' => $apiError], 502);
+    }
+
+    // API filters by slug, so use slug as the dropdown value.
+    $normalize = static fn(array $item) => [
+      'id' => (string)($item['slug'] ?? $item['id'] ?? ''),
+      'name' => (string)($item['name'] ?? ''),
+    ];
+
+    return new JsonResponse([
+      'collections' => array_values(array_map($normalize, $collections['data'] ?? $collections)),
+      'tags' => array_values(array_map($normalize, $tags['data'] ?? $tags)),
+    ]);
   }
 
 }

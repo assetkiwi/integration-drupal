@@ -15,9 +15,6 @@ use Symfony\Component\HttpFoundation\Request;
  */
 class WebhookController extends ControllerBase {
 
-  /**
-   * {@inheritDoc}
-   */
   public static function create(ContainerInterface $container): static {
     $instance = parent::create($container);
     $instance->configFactory = $container->get('config.factory');

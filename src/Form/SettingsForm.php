@@ -20,14 +20,8 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
  */
 class SettingsForm extends ConfigFormBase {
 
-  /**
-   * The asset.kiwi API client.
-   */
   protected AssetKiwiClient $assetKiwiClient;
 
-  /**
-   * The HTTP client.
-   */
   protected ClientInterface $httpClient;
 
   /**
@@ -93,6 +87,13 @@ class SettingsForm extends ConfigFormBase {
       '#description' => $this->t('Shared secret for verifying incoming webhooks from asset.kiwi. Must match the secret configured in asset.kiwi webhook settings.'),
       '#default_value' => $config->get('webhook_secret') ?? '',
       '#maxlength' => 255,
+    ];
+
+    $form['serve_from_cdn'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Serve assets directly from asset.kiwi'),
+      '#description' => $this->t('Reference asset.kiwi URLs directly instead of downloading files locally. Disable if you need local copies for further processing.'),
+      '#default_value' => $config->get('serve_from_cdn') ?? TRUE,
     ];
 
     $form['image_style_mapping'] = [
@@ -168,6 +169,7 @@ class SettingsForm extends ConfigFormBase {
       ->set('api_token', $form_state->getValue('api_token'))
       ->set('cache_lifetime', (int)$form_state->getValue('cache_lifetime'))
       ->set('webhook_secret', $form_state->getValue('webhook_secret'))
+      ->set('serve_from_cdn', (bool)$form_state->getValue('serve_from_cdn'))
       ->set('image_style_mapping', [
         'thumbnail' => $form_state->getValue('mapping_thumbnail'),
         'medium' => $form_state->getValue('mapping_medium'),

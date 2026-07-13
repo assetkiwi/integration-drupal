@@ -1,101 +1,147 @@
 /**
  * @file
- * AssetKiwi browser widget behavior.
+ * Opens the asset.kiwi picker in a dialog and writes selected UUIDs to the hidden field.
  */
-(function (Drupal, $, once) {
+(function (Drupal, once) {
   'use strict';
 
   Drupal.behaviors.assetkiwiWidget = {
     attach: function (context) {
-      $(once('assetkiwi-browse', '.assetkiwi-browse-btn', context)).on('click', function (e) {
-        e.preventDefault();
-        var $btn = $(this);
-        var $wrapper = $btn.closest('.form-wrapper, .fieldset-wrapper, .field--widget-assetkiwi-browser, .field--type-string').first();
-        var browserUrl = $btn.attr('data-browser-url');
-
-        Drupal.assetkiwi = Drupal.assetkiwi || {};
-        Drupal.assetkiwi.activeWidget = $wrapper;
-
-        $('#assetkiwi-browser-dialog').remove();
-
-        var $dialog = $('<div id="assetkiwi-browser-dialog"assetkiwi-></div>');
-        $dialog.appendTo('body');
-
-        $.ajax({
-          url: browserUrl,
-          success: function (html) {
-            $dialog.html(html);
-
-            $dialog.dialog({
-              title: Drupal.t('Select an asset from AssetKiwi'),
-              width: Math.min(1100, $(window).width() - 40),
-              height: Math.min(700, $(window).height() - 40),
-              modal: true,
-              close: function () {
-                $dialog.dialog('destroy').remove();
-              }
-            });
-
-            // Attach behaviors after dialog is open so context is correct.
-            Drupal.attachBehaviors($dialog[0]);
-          }
+      once('assetkiwi-browse', '.assetkiwi-browse-btn', context).forEach(function (btn) {
+        btn.addEventListener('click', function (e) {
+          e.preventDefault();
+          openPicker(btn);
         });
       });
 
-      $(once('assetkiwi-remove', '.assetkiwi-remove-btn', context)).on('click', function (e) {
-        e.preventDefault();
-        var $wrapper = $(this).closest('.form-wrapper, .fieldset-wrapper, .field--widget-assetkiwi-browser, .field--type-string').first();
-        var $uuid = $wrapper.find('[data-assetkiwi-uuid]');
-        $uuid.val('');
-
-        var $preview = $wrapper.find('.assetkiwi-widget-preview');
-        $preview.html('<div class="assetkiwi-widget-empty"assetkiwi->' + Drupal.t('No asset selected.') + '</div>');
-
-        $wrapper.find('.assetkiwi-browse-btn').val(Drupal.t('Browse DAM'));
-        $(this).remove();
+      once('assetkiwi-remove', '.assetkiwi-remove-btn', context).forEach(function (btn) {
+        btn.addEventListener('click', function (e) {
+          e.preventDefault();
+          removeSelection(btn);
+        });
       });
-    }
+    },
   };
 
-  /**
-   * Called from the browser dialog when an asset is selected.
-   */
-  Drupal.assetkiwiSelect = function (uuid, name, thumbUrl, mimeType) {
-    var $wrapper = Drupal.assetkiwi && Drupal.assetkiwi.activeWidget;
-    if (!$wrapper || !$wrapper.length) {
-      return;
+  function getWrapper(el) {
+    return (
+      el.closest('.form-wrapper, .fieldset-wrapper, .field--widget-assetkiwi-browser, .field--type-string') ||
+      el.closest('.js-form-item') ||
+      el.parentElement
+    );
+  }
+
+  function openPicker(btn) {
+    var wrapper = getWrapper(btn);
+    var config = JSON.parse(btn.getAttribute('data-assetkiwi-picker') || '{}');
+
+    var container = document.createElement('div');
+    var dialog = Drupal.dialog(container, {
+      title: Drupal.t('Select an asset from asset.kiwi'),
+      width: Math.min(1100, window.innerWidth - 40),
+      height: Math.min(700, window.innerHeight - 40),
+      dialogClass: 'assetkiwi-picker-dialog',
+      close: function () {
+        container.remove();
+      },
+    });
+
+    Drupal.AssetKiwiPicker.mount(container, {
+      mode: 'single',
+      allowedTypes: config.allowedTypes || [],
+      endpoints: config.endpoints || {},
+      onSelect: function (assets) {
+        var asset = assets[0];
+        if (asset) {
+          applySelection(wrapper, asset);
+        }
+        dialog.close();
+      },
+    });
+
+    dialog.showModal();
+  }
+
+  function applySelection(wrapper, asset) {
+    var hidden = wrapper.querySelector('[data-assetkiwi-uuid]');
+    if (hidden) {
+      hidden.value = asset.uuid;
     }
 
-    var $uuid = $wrapper.find('[data-assetkiwi-uuid]');
-    $uuid.val(uuid);
+    var preview = wrapper.querySelector('.assetkiwi-widget-preview');
+    if (preview) {
+      preview.innerHTML = '';
 
-    var $preview = $wrapper.find('.assetkiwi-widget-preview');
-    var previewHtml = '<div class="assetkiwi-widget-selected"assetkiwi->';
-    if (mimeType && mimeType.indexOf('image') === 0 && thumbUrl) {
-      previewHtml += '<img src="assetkiwi-' + Drupal.checkPlain(thumbUrl) + '"assetkiwi- alt="assetkiwi-' + Drupal.checkPlain(name) + '"assetkiwi- class="assetkiwi-widget-thumb"assetkiwi- />';
+      var selected = document.createElement('div');
+      selected.className = 'assetkiwi-widget-selected';
+
+      if (asset.mime && asset.mime.indexOf('image') === 0 && asset.thumbUrl) {
+        var img = document.createElement('img');
+        img.src = asset.thumbUrl;
+        img.alt = asset.name || '';
+        img.className = 'assetkiwi-widget-thumb';
+        selected.appendChild(img);
+      }
+
+      var info = document.createElement('div');
+      info.className = 'assetkiwi-widget-info';
+
+      var name = document.createElement('span');
+      name.className = 'assetkiwi-widget-name';
+      name.textContent = asset.name || '';
+      info.appendChild(name);
+
+      var uuidLabel = document.createElement('span');
+      uuidLabel.className = 'assetkiwi-widget-uuid-label';
+      uuidLabel.textContent = 'UUID: ' + asset.uuid;
+      info.appendChild(uuidLabel);
+
+      selected.appendChild(info);
+      preview.appendChild(selected);
     }
-    previewHtml += '<div class="assetkiwi-widget-info"assetkiwi->';
-    previewHtml += '<span class="assetkiwi-widget-name"assetkiwi->' + Drupal.checkPlain(name) + '</span>';
-    previewHtml += '<span class="assetkiwi-widget-uuid-label"assetkiwi->UUID: ' + Drupal.checkPlain(uuid) + '</span>';
-    previewHtml += '</div></div>';
-    $preview.html(previewHtml);
 
-    $wrapper.find('.assetkiwi-browse-btn').val(Drupal.t('Replace asset'));
+    var browseBtn = wrapper.querySelector('.assetkiwi-browse-btn');
+    if (browseBtn) {
+      browseBtn.value = Drupal.t('Replace asset');
 
-    if (!$wrapper.find('.assetkiwi-remove-btn').length) {
-      var $removeBtn = $('<input type="assetkiwi-button"assetkiwi- class="assetkiwi-remove-btn button button--danger"assetkiwi- value="assetkiwi-' + Drupal.t('Remove') + '"assetkiwi- />');
-      $wrapper.find('.assetkiwi-browse-btn').after($removeBtn);
-      Drupal.attachBehaviors($removeBtn[0]);
-    }
-
-    var $dialog = $('#assetkiwi-browser-dialog');
-    if ($dialog.length) {
-      try {
-        $dialog.dialog('close');
-      } catch (e) {
-        $dialog.remove();
+      if (!wrapper.querySelector('.assetkiwi-remove-btn')) {
+        var removeBtn = document.createElement('input');
+        removeBtn.type = 'button';
+        removeBtn.className = 'assetkiwi-remove-btn button button--danger';
+        removeBtn.value = Drupal.t('Remove');
+        // Fresh element — bind directly without once().
+        removeBtn.addEventListener('click', function (e) {
+          e.preventDefault();
+          removeSelection(removeBtn);
+        });
+        browseBtn.insertAdjacentElement('afterend', removeBtn);
       }
     }
-  };
+  }
 
-})(Drupal, jQuery, once);
+  function removeSelection(btn) {
+    var wrapper = getWrapper(btn);
+
+    var hidden = wrapper.querySelector('[data-assetkiwi-uuid]');
+    if (hidden) {
+      hidden.value = '';
+    }
+
+    var preview = wrapper.querySelector('.assetkiwi-widget-preview');
+    if (preview) {
+      preview.innerHTML = '';
+      var empty = document.createElement('div');
+      empty.className = 'assetkiwi-widget-empty';
+      empty.textContent = Drupal.t('No asset selected.');
+      preview.appendChild(empty);
+    }
+
+    var browseBtn = wrapper.querySelector('.assetkiwi-browse-btn');
+    if (browseBtn) {
+      browseBtn.value = Drupal.t('Browse DAM');
+    }
+
+    btn.remove();
+  }
+
+})(Drupal, once);

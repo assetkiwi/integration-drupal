@@ -5,7 +5,7 @@ Integrates Drupal with the [asset.kiwi](https://assetkiwi.com) digital asset man
 ## Features
 
 - **Media source plugin** — Manage asset.kiwi assets as native Drupal media entities
-- **Visual browser** — Browse, search, and filter assets (by collection, tag, type, and semantic search mode) from a modal widget or the dedicated browser UI
+- **Visual picker widget** — Browse, search, and filter assets (by collection, tag, type, and semantic search mode) from a self-contained widget embedded in the Media Library add form and the field widget's dialog — no page reloads, no DAM API token in the browser
 - **Field widget** — Select assets on any content type using the "asset.kiwi Browser" widget
 - **Image formatter** — Render images directly from asset.kiwi variant URLs, with lazy/eager loading and optional link-to-original
 - **Webhook sync** — asset.kiwi pushes updates (rename, alt text, description changes, deletion) to keep Drupal in sync
@@ -132,19 +132,20 @@ On the **Display** tab, set the formatter for the source field to **asset.kiwi I
 
 1. Edit any content that has a media reference field
 2. Click **Add media** to open the Media Library
-3. Select the tab for your asset.kiwi media type
-4. Browse, search, filter, and paginate through assets
-5. Click **Select** on an individual asset, or check multiple assets and click **Import selected**
-6. The media entity is created with metadata pre-populated from asset.kiwi
+3. Select the tab for your asset.kiwi media type — the asset.kiwi picker widget is the *only* thing shown for this tab (Drupal's own "existing media" browse grid is suppressed for asset.kiwi media types, to avoid two separate, conflicting selection UIs for the same asset)
+4. Click an asset's checkbox to select it (or several — up to the host field's configured cardinality), then click **Use selected**. Assets already imported as Drupal media show an **Already added** badge — selecting one of those references the existing media entity rather than creating a duplicate
+5. For genuinely new assets, media entities are created (unsaved) with metadata pre-populated from asset.kiwi; review/fill in any required fields, then **Save and select**/**Save and insert** as usual
 
 ### Using the asset.kiwi Browser Field Widget
 
 The "asset.kiwi Browser" widget can be placed on any entity type that has a plain text field — not just media. When configured:
 
 1. A "Browse DAM" button appears in place of the text input
-2. Clicking it opens a modal browser with full search and filter capabilities
-3. Selecting an asset populates the hidden field with the asset UUID
-4. A preview thumbnail and the "Replace asset" / "Remove" buttons appear for the selected asset
+2. Clicking it opens the asset.kiwi picker widget in a Drupal dialog
+3. Clicking an asset selects it immediately and closes the dialog, populating the hidden field with the asset UUID
+4. A preview thumbnail and the "Replace asset" / "Remove" buttons appear for the selected asset — including on page load for content that already has a reference
+
+Both entry points are powered by the same picker widget (`js/assetkiwi-picker.js`), which calls the module's own JSON endpoints (`/admin/assetkiwi/api/assets`, `/admin/assetkiwi/api/facets`) rather than talking to asset.kiwi directly — the API token never reaches the browser.
 
 ### Rendering Assets with the asset.kiwi Image Formatter
 
@@ -227,7 +228,7 @@ The command handles pagination automatically for large result sets. Existing ass
 | Permission | Description |
 |-----------|-------------|
 | **Administer asset.kiwi settings** | Configure the API URL, token, webhook secret, and image style mapping |
-| **Browse asset.kiwi assets** | Access the standalone asset browser and select assets for import |
+| **Browse asset.kiwi assets** | Use the picker widget (Media Library add form and field widget) and select assets for import |
 
 Both permissions are typically assigned to content editors and administrators. The browse permission is required for the media library add form and the field widget to function.
 
@@ -297,7 +298,7 @@ Or alter the webhook controller via a service decorator if deeper integration is
 
 ### Connection Refused / API Errors
 
-**Symptom**: "Could not connect to asset.kiwi" message in the browser, or empty asset grids.
+**Symptom**: "Could not load assets from asset.kiwi." message in the picker widget, or empty asset grids.
 
 **Checklist**:
 1. Verify the **API Base URL** is correct and reachable from the Drupal server
@@ -306,14 +307,14 @@ Or alter the webhook controller via a service decorator if deeper integration is
 4. Test connectivity from the server: `curl -H "Authorization: Bearer TOKEN" https://your-dam.example.com/api/v1/assets`
 5. Use the **Test Connection** button on the settings form
 
-### Empty Browser / No Assets Found
+### Empty Picker / No Assets Found
 
-**Symptom**: The browser loads but shows "No assets found" even though assets exist.
+**Symptom**: The picker widget loads but shows "No assets found" even though assets exist.
 
 **Checklist**:
 1. Confirm the API token has access to the expected assets
 2. Check that any type restrictions on the media type source configuration aren't filtering out assets unexpectedly
-3. Try clearing the type/collection/tag filters in the browser
+3. Try clearing the type/collection/tag filters in the picker
 4. If using the `document` type filter, ensure your asset.kiwi instance version supports the `type` parameter for documents (the module automatically translates `mime_type=document` to `type=document`)
 5. Check the **Search mode** — if set to "Semantic" or "Hybrid", verify your asset.kiwi instance has semantic search enabled
 

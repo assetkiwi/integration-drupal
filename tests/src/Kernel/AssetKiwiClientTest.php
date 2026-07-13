@@ -6,6 +6,12 @@ namespace Drupal\Tests\assetkiwi_connect\Kernel;
 
 use Drupal\assetkiwi_connect\Client\AssetKiwiClient;
 use Drupal\KernelTests\KernelTestBase;
+use GuzzleHttp\Client as GuzzleClient;
+use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Handler\MockHandler;
+use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Psr7\Request as GuzzleRequest;
+use GuzzleHttp\Psr7\Response as GuzzleResponse;
 
 /**
  * Tests the asset.kiwi API client.
@@ -124,6 +130,68 @@ class AssetKiwiClientTest extends KernelTestBase {
     $pager = $this->client->normalizePager($flat, 1);
     $this->assertEquals(1, $pager['current_page']);
     $this->assertEquals(2, $pager['total']);
+  }
+
+  /**
+   * Builds a client whose HTTP transport is a Guzzle mock handler queue.
+   */
+  protected function buildClientWithHandler(MockHandler $handler): AssetKiwiClient {
+    $httpClient = new GuzzleClient(['handler' => HandlerStack::create($handler)]);
+    return new AssetKiwiClient(
+      $this->container->get('config.factory'),
+      $httpClient,
+      $this->container->get('logger.factory'),
+      $this->container->get('file_system'),
+      $this->container->get('request_stack'),
+      $this->container->get('logger.factory')->get('assetkiwi_connect'),
+    );
+  }
+
+  /**
+   * Test cacheThumbnail prepares the directory and writes the file.
+   */
+  public function testCacheThumbnailWritesFileAndPreparesDirectory(): void {
+    $client = $this->buildClientWithHandler(new MockHandler([
+      new GuzzleResponse(200, ['Content-Type' => 'image/jpeg'], 'FAKE-IMAGE-BYTES'),
+    ]));
+
+    $uri = $client->cacheThumbnail('abc-123', 'https://dam.example.com/path/thumb.jpg');
+
+    $this->assertSame('public://assetkiwi_thumbnails/abc-123.jpg', $uri);
+
+    $fileSystem = $this->container->get('file_system');
+    $this->assertDirectoryExists($fileSystem->realpath('public://assetkiwi_thumbnails'));
+    $realpath = $fileSystem->realpath($uri);
+    $this->assertFileExists($realpath);
+    $this->assertStringEqualsFile($realpath, 'FAKE-IMAGE-BYTES');
+  }
+
+  /**
+   * Test cacheThumbnail returns NULL and records an error on HTTP failure.
+   */
+  public function testCacheThumbnailReturnsNullOnHttpFailure(): void {
+    $client = $this->buildClientWithHandler(new MockHandler([
+      new ConnectException('Connection refused', new GuzzleRequest('GET', 'https://dam.example.com/thumb.jpg')),
+    ]));
+
+    $uri = $client->cacheThumbnail('def-456', 'https://dam.example.com/thumb.jpg');
+
+    $this->assertNull($uri);
+    $this->assertNotNull($client->getLastError());
+  }
+
+  /**
+   * Test cacheThumbnail returns NULL when the response body is empty.
+   */
+  public function testCacheThumbnailReturnsNullOnEmptyBody(): void {
+    $client = $this->buildClientWithHandler(new MockHandler([
+      new GuzzleResponse(200, [], ''),
+    ]));
+
+    $uri = $client->cacheThumbnail('ghi-789', 'https://dam.example.com/thumb.jpg');
+
+    $this->assertNull($uri);
+    $this->assertNotNull($client->getLastError());
   }
 
 }

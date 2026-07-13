@@ -1,3 +1,15 @@
+picker:
+  version: 1.x
+  js:
+    js/assetkiwi-picker.js: { }
+  css:
+    component:
+      css/assetkiwi-variables.css: { }
+      css/assetkiwi-picker.css: { }
+  dependencies:
+    - core/drupal
+    - core/once
+
 widget:
   version: 1.x
   js:
@@ -6,26 +18,11 @@ widget:
     component:
       css/assetkiwi-variables.css: { }
       css/assetkiwi-widget.css: { }
-      css/assetkiwi-browser.css: { }
   dependencies:
     - core/drupal
-    - core/drupal.dialog.ajax
-    - core/jquery
+    - core/drupal.dialog
     - core/once
-    - assetkiwi_connect/browser
-
-browser:
-  version: 1.x
-  js:
-    js/assetkiwi-browser.js: { }
-  css:
-    component:
-      css/assetkiwi-variables.css: { }
-      css/assetkiwi-browser.css: { }
-  dependencies:
-    - core/drupal
-    - core/jquery
-    - core/once
+    - assetkiwi_connect/picker
 
 media_library:
   version: 1.x
@@ -35,5 +32,11 @@ media_library:
       css/assetkiwi-media-library.css: { }
   dependencies:
     - core/drupal
-    - core/jquery
     - core/once
+    - assetkiwi_connect/picker
+
+file_icons:
+  version: 1.x
+  css:
+    component:
+      css/assetkiwi-file-icons.css: { }

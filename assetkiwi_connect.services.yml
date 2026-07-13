@@ -11,3 +11,9 @@ services:
       - '@file_system'
       - '@request_stack'
       - '@logger.channel.assetkiwi_connect'
+  assetkiwi_connect.mime_icon_resolver:
+    class: Drupal\assetkiwi_connect\Utility\MimeIconResolver
+  assetkiwi_connect.existing_media_resolver:
+    class: Drupal\assetkiwi_connect\ExistingMediaResolver
+    arguments:
+      - '@entity_type.manager'

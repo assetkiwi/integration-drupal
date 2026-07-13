@@ -12,14 +12,8 @@ use Drush\Commands\AutowireTrait;
 use Drush\Commands\DrushCommands;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
-/**
- * Drush commands for asset.kiwi integration.
- */
 class AssetKiwiCommands extends DrushCommands {
 
-  /**
-   * Constructs an AssetKiwiCommands instance.
-   */
   public function __construct(
     protected AssetKiwiClient $assetKiwiClient,
     protected EntityTypeManagerInterface $entityTypeManager,
@@ -64,7 +58,6 @@ class AssetKiwiCommands extends DrushCommands {
       'uuid' => '',
     ],
   ): void {
-    // Load the media type to verify it exists and uses the AssetKiwiAsset source.
     $mediaType = $this->entityTypeManager->getStorage('media_type')->load($bundle);
     if (!$mediaType) {
       $this->logger()->error(dt('Media type "@bundle" not found.', ['@bundle' => $bundle]));
@@ -72,22 +65,19 @@ class AssetKiwiCommands extends DrushCommands {
     }
 
     $source = $mediaType->getSource();
-    if (!$source instanceof asset.kiwiAsset) {
+    if (!$source instanceof AssetKiwiAsset) {
       $this->logger()->error(dt('Media type "@bundle" must use the asset.kiwi Asset source plugin.', ['@bundle' => $bundle]));
       return;
     }
 
     $sourceFieldName = $source->getSourceFieldName();
 
-    // Determine which assets to import.
     $uuids = [];
 
     if (!empty($options['uuid'])) {
-      // Single UUID import.
       $uuids = [$options['uuid']];
     }
     else {
-      // Fetch assets from the API with filters.
       $params = [
         'per_page' => min(100, $options['limit'] > 0 ? $options['limit'] : 100),
       ];
@@ -121,7 +111,6 @@ class AssetKiwiCommands extends DrushCommands {
       }
       $uuids = array_filter($uuids);
 
-      // Handle pagination for larger imports.
       if ($options['limit'] === 0 || count($uuids) < $options['limit']) {
         $pager = $this->assetKiwiClient->normalizePager($response, 1);
         $lastPage = $pager['last_page'] ?? 1;
@@ -168,7 +157,6 @@ class AssetKiwiCommands extends DrushCommands {
       return;
     }
 
-    // Perform the import.
     $imported = 0;
     $skipped = 0;
     $errors = 0;
@@ -179,7 +167,6 @@ class AssetKiwiCommands extends DrushCommands {
 
     foreach ($uuids as $uuid) {
       try {
-        // Check if this UUID is already imported.
         $existing = $mediaStorage->getQuery()
           ->accessCheck(FALSE)
           ->condition($sourceFieldName, $uuid)
@@ -192,7 +179,6 @@ class AssetKiwiCommands extends DrushCommands {
           continue;
         }
 
-        // Fetch asset metadata.
         $asset = $this->assetKiwiClient->getAsset($uuid);
         if (empty($asset)) {
           $errors++;
@@ -203,7 +189,6 @@ class AssetKiwiCommands extends DrushCommands {
         $data = $this->assetKiwiClient->normalizeAsset($asset);
         $displayName = $this->assetKiwiClient->getAssetDisplayName($data);
 
-        // Create the media entity.
         $media = $mediaStorage->create([
           'bundle' => $bundle,
           $sourceFieldName => $uuid,
@@ -212,8 +197,8 @@ class AssetKiwiCommands extends DrushCommands {
         $media->save();
         $imported++;
 
-        // Optionally download the file for image type media.
-        if (str_starts_with($data['mime_type'] ?? $data['mimeType'] ?? '', 'image/')) {
+        // Download the file when not serving from CDN.
+        if (!$this->assetKiwiClient->shouldServeFromCdn() && str_starts_with($data['mime_type'] ?? $data['mimeType'] ?? '', 'image/')) {
           try {
             $fileInfo = $this->assetKiwiClient->downloadAssetFile($uuid);
             if ($fileInfo !== NULL) {
@@ -225,7 +210,6 @@ class AssetKiwiCommands extends DrushCommands {
             }
           }
           catch (\Exception $e) {
-            // File download is optional; don't fail the import.
             $this->logger()->warning(dt('Could not download file for @uuid: @message', [
               '@uuid' => $uuid,
               '@message' => $e->getMessage(),
@@ -249,6 +233,91 @@ class AssetKiwiCommands extends DrushCommands {
     $this->logger()->success(dt('Import complete: @imported imported, @skipped skipped, @errors errors.', [
       '@imported' => $imported,
       '@skipped' => $skipped,
+      '@errors' => $errors,
+    ]));
+  }
+
+  /**
+   * Regenerate thumbnails for existing asset.kiwi media entities.
+   *
+   * Media created before local thumbnail caching still show the generic icon;
+   * this clears the thumbnail and re-saves each item to trigger regeneration.
+   */
+  #[CLI\Command(name: 'assetkiwi:regenerate-thumbnails', aliases: ['ak:thumbs'])]
+  #[CLI\Option(name: 'type', description: 'Restrict to a single media type (bundle) machine name.')]
+  #[CLI\Usage(name: 'drush assetkiwi:regenerate-thumbnails', description: 'Regenerate thumbnails for all asset.kiwi media.')]
+  #[CLI\Usage(name: 'drush ak:thumbs --type=assetkiwi_asset', description: 'Regenerate thumbnails for the "assetkiwi_asset" media type only.')]
+  public function regenerateThumbnails(
+    array $options = [
+      'type' => '',
+    ],
+  ): void {
+    $bundles = [];
+    $mediaTypes = $this->entityTypeManager->getStorage('media_type')->loadMultiple();
+    foreach ($mediaTypes as $id => $mediaType) {
+      if (!empty($options['type']) && $id !== $options['type']) {
+        continue;
+      }
+      if ($mediaType->getSource() instanceof AssetKiwiAsset) {
+        $bundles[] = $id;
+      }
+    }
+
+    if (empty($bundles)) {
+      $this->logger()->warning(dt('No media types using the asset.kiwi source were found@filter.', [
+        '@filter' => !empty($options['type']) ? dt(' matching "@type"', ['@type' => $options['type']]) : '',
+      ]));
+      return;
+    }
+
+    $mediaStorage = $this->entityTypeManager->getStorage('media');
+    $ids = $mediaStorage->getQuery()
+      ->accessCheck(FALSE)
+      ->condition('bundle', $bundles, 'IN')
+      ->execute();
+
+    if (empty($ids)) {
+      $this->logger()->warning(dt('No media entities found for bundle(s): @bundles.', ['@bundles' => implode(', ', $bundles)]));
+      return;
+    }
+
+    $total = count($ids);
+    $this->logger()->info(dt('Regenerating thumbnails for @count media item(s) in: @bundles.', [
+      '@count' => $total,
+      '@bundles' => implode(', ', $bundles),
+    ]));
+
+    $updated = 0;
+    $errors = 0;
+
+    $this->io()->progressStart($total);
+
+    foreach (array_chunk($ids, 50) as $chunk) {
+      /** @var \Drupal\media\MediaInterface[] $mediaItems */
+      $mediaItems = $mediaStorage->loadMultiple($chunk);
+      foreach ($mediaItems as $media) {
+        try {
+          // Clear thumbnail so core regenerates it on save.
+          $media->set('thumbnail', NULL);
+          $media->save();
+          $updated++;
+        }
+        catch (\Throwable $e) {
+          $errors++;
+          $this->logger()->error(dt('Failed to regenerate thumbnail for media @id: @message', [
+            '@id' => $media->id(),
+            '@message' => $e->getMessage(),
+          ]));
+        }
+        $this->io()->progressAdvance();
+      }
+      $mediaStorage->resetCache($chunk);
+    }
+
+    $this->io()->progressFinish();
+
+    $this->logger()->success(dt('Thumbnail regeneration complete: @updated updated, @errors error(s).', [
+      '@updated' => $updated,
       '@errors' => $errors,
     ]));
   }

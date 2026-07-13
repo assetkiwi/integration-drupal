@@ -18,7 +18,6 @@ use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
  * @FieldFormatter(
  *   id = "assetkiwi_image",
  *   label = @Translation("asset.kiwi Image"),
- *   description = @Translation("Displays the image from asset.kiwi.using a configured variant."),
  *   field_types = {
  *     "string",
  *   }
@@ -45,12 +44,27 @@ class AssetKiwiImageFormatter extends FormatterBase implements ContainerFactoryP
   public function settingsForm(array $form, FormStateInterface $form_state): array {
     $elements = parent::settingsForm($form, $form_state);
 
+    $current_variant = $this->getSetting('variant');
+    $options = ['' => $this->t('- Original (no transformation) -')];
+    foreach ($this->assetKiwiClient->getImageStyles() as $style) {
+      $key = $style['key'] ?? '';
+      if ($key === '') {
+        continue;
+      }
+      $options[$key] = $style['name'] ?? $key;
+    }
+    if ($current_variant !== '' && !isset($options[$current_variant])) {
+      // Preserve the configured value even if it can't currently be fetched
+      // from asset.kiwi, so saving the display doesn't silently discard it.
+      $options[$current_variant] = $this->t('@key (not found in asset.kiwi)', ['@key' => $current_variant]);
+    }
+
     $elements['variant'] = [
-      '#type' => 'textfield',
-      '#title' => $this->t('Variant name'),
-      '#description' => $this->t('The asset.kiwi variant/image style key to use (e.g. thumb, medium, large). Leave empty for original.'),
-      '#default_value' => $this->getSetting('variant'),
-      '#size' => 30,
+      '#type' => 'select',
+      '#title' => $this->t('Image style'),
+      '#description' => $this->t('The asset.kiwi image style (variant) to render. Image styles are defined and managed in asset.kiwi.'),
+      '#options' => $options,
+      '#default_value' => $current_variant,
     ];
 
     $elements['image_loading'] = [

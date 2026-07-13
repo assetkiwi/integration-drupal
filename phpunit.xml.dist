@@ -13,6 +13,9 @@
     <testsuite name="Functional">
       <directory>tests/src/Functional</directory>
     </testsuite>
+    <testsuite name="FunctionalJavascript">
+      <directory>tests/src/FunctionalJavascript</directory>
+    </testsuite>
   </testsuites>
   <coverage processUncoveredFiles="true">
     <include>

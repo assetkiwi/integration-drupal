@@ -6,6 +6,7 @@ namespace Drupal\Tests\assetkiwi_connect\Unit;
 
 use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Config\ImmutableConfig;
+use Drupal\Core\File\FileSystemInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\assetkiwi_connect\Client\AssetKiwiClient;
@@ -25,6 +26,8 @@ class AssetKiwiClientTest extends UnitTestCase {
   protected ConfigFactoryInterface $configFactory;
   protected LoggerChannelFactoryInterface $loggerFactory;
   protected LoggerChannelInterface $logger;
+  protected FileSystemInterface $fileSystem;
+  protected RequestStack $requestStack;
   protected AssetKiwiClient $client;
 
   protected function setUp(): void {
@@ -47,10 +50,16 @@ class AssetKiwiClientTest extends UnitTestCase {
     $this->loggerFactory = $this->createMock(LoggerChannelFactoryInterface::class);
     $this->loggerFactory->method('get')->willReturn($this->logger);
 
+    $this->fileSystem = $this->createMock(FileSystemInterface::class);
+    $this->requestStack = new RequestStack();
+
     $this->client = new AssetKiwiClient(
       $this->configFactory,
       $this->httpClient,
       $this->loggerFactory,
+      $this->fileSystem,
+      $this->requestStack,
+      $this->logger,
     );
   }
 
@@ -203,6 +212,64 @@ class AssetKiwiClientTest extends UnitTestCase {
       ->willThrowException(new RequestException('Not found', $request));
 
     $this->assertNull($this->client->downloadAsset('abc-123'));
+  }
+
+  public function test_to_picker_asset_prefers_thumb_variant(): void {
+    $result = $this->client->toPickerAsset([
+      'uuid' => 'abc-123',
+      'original_name' => 'photo.jpg',
+      'mime_type' => 'image/jpeg',
+      'url' => 'https://dam.example.com/original.jpg',
+      'variants' => [
+        ['variant_name' => 'thumb', 'url' => 'https://dam.example.com/thumb.jpg'],
+      ],
+    ]);
+
+    $this->assertSame('abc-123', $result['uuid']);
+    $this->assertSame('photo.jpg', $result['name']);
+    $this->assertSame('image/jpeg', $result['mime']);
+    $this->assertSame('https://dam.example.com/thumb.jpg', $result['thumbUrl']);
+    $this->assertSame('https://dam.example.com/original.jpg', $result['url']);
+  }
+
+  public function test_to_picker_asset_falls_back_to_original_for_images_without_derivatives(): void {
+    // No 'thumb'/'preview' variant (e.g. derivatives not generated yet) — an
+    // image must still get a usable thumbUrl from its original file.
+    $result = $this->client->toPickerAsset([
+      'uuid' => 'abc-123',
+      'mime_type' => 'image/png',
+      'url' => 'https://dam.example.com/banner.png',
+      'variants' => [],
+    ]);
+
+    $this->assertSame('https://dam.example.com/banner.png', $result['thumbUrl']);
+  }
+
+  public function test_to_picker_asset_does_not_fall_back_for_non_images(): void {
+    // The raw file of a PDF/video/audio asset is not a valid <img> source, so
+    // thumbUrl must stay null when there's no thumb/preview variant.
+    $result = $this->client->toPickerAsset([
+      'uuid' => 'abc-123',
+      'mime_type' => 'application/pdf',
+      'url' => 'https://dam.example.com/manual.pdf',
+      'variants' => [],
+    ]);
+
+    $this->assertNull($result['thumbUrl']);
+  }
+
+  public function test_to_picker_asset_uses_preview_variant_for_non_images(): void {
+    // A generated 'preview' (PDF page render, video frame) is a valid thumb.
+    $result = $this->client->toPickerAsset([
+      'uuid' => 'abc-123',
+      'mime_type' => 'application/pdf',
+      'url' => 'https://dam.example.com/manual.pdf',
+      'variants' => [
+        ['variant_name' => 'preview', 'url' => 'https://dam.example.com/manual-preview.jpg'],
+      ],
+    ]);
+
+    $this->assertSame('https://dam.example.com/manual-preview.jpg', $result['thumbUrl']);
   }
 
 }

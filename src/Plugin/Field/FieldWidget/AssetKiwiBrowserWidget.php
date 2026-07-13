@@ -4,13 +4,16 @@ declare(strict_types=1);
 
 namespace Drupal\assetkiwi_connect\Plugin\Field\FieldWidget;
 
+use Drupal\Component\Serialization\Json;
 use Drupal\Core\Field\Attribute\FieldWidget;
 use Drupal\Core\Field\FieldItemListInterface;
 use Drupal\Core\Field\WidgetBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\Core\Url;
+use Drupal\assetkiwi_connect\Client\AssetKiwiClient;
 use Drupal\assetkiwi_connect\Plugin\media\Source\AssetKiwiAsset;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 
 #[FieldWidget(
   id: 'assetkiwi_browser',
@@ -19,6 +22,17 @@ use Drupal\assetkiwi_connect\Plugin\media\Source\AssetKiwiAsset;
   field_types: ['string'],
 )]
 class AssetKiwiBrowserWidget extends WidgetBase {
+
+  protected AssetKiwiClient $assetKiwiClient;
+
+  /**
+   * {@inheritdoc}
+   */
+  public static function create(ContainerInterface $container, array $configuration, $plugin_id, $plugin_definition): static {
+    $instance = parent::create($container, $configuration, $plugin_id, $plugin_definition);
+    $instance->assetKiwiClient = $container->get('assetkiwi_connect.client');
+    return $instance;
+  }
 
   /**
    * {@inheritdoc}
@@ -42,16 +56,44 @@ class AssetKiwiBrowserWidget extends WidgetBase {
       ],
     ];
 
-    if (!empty($value)) {
+    $asset_preview = !empty($value) ? $this->loadAssetPreview($value) : NULL;
+
+    if ($asset_preview) {
+      $element['preview']['selected'] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['assetkiwi-widget-selected']],
+      ];
+
+      if (str_starts_with($asset_preview['mime'] ?? '', 'image') && !empty($asset_preview['thumbUrl'])) {
+        $element['preview']['selected']['thumb'] = [
+          '#theme' => 'image',
+          '#uri' => $asset_preview['thumbUrl'],
+          '#alt' => $asset_preview['name'] ?? '',
+          '#attributes' => ['class' => ['assetkiwi-widget-thumb']],
+        ];
+      }
+
+      $element['preview']['selected']['info'] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['assetkiwi-widget-info']],
+        'name' => [
+          '#type' => 'html_tag',
+          '#tag' => 'span',
+          '#value' => $asset_preview['name'] ?? '',
+          '#attributes' => ['class' => ['assetkiwi-widget-name']],
+        ],
+        'uuid' => [
+          '#type' => 'html_tag',
+          '#tag' => 'span',
+          '#value' => $this->t('UUID: @uuid', ['@uuid' => $value]),
+          '#attributes' => ['class' => ['assetkiwi-widget-uuid-label']],
+        ],
+      ];
+    }
+    elseif (!empty($value)) {
+      // Show UUID as fallback when API is unreachable.
       $element['preview']['info'] = [
         '#markup' => '<div class="assetkiwi-widget-selected"><span class="assetkiwi-widget-uuid">' . $this->t('Selected asset: @uuid', ['@uuid' => $value]) . '</span></div>',
-      ];
-      $element['preview']['thumbnail'] = [
-        '#type' => 'container',
-        '#attributes' => [
-          'class' => ['assetkiwi-widget-thumbnail'],
-          'data-uuid' => $value,
-        ],
       ];
     }
     else {
@@ -60,23 +102,25 @@ class AssetKiwiBrowserWidget extends WidgetBase {
       ];
     }
 
-    $browser_query = ['modal' => '1'];
-
-    // Pass allowed asset types so the standalone browser respects the same
+    // Pass allowed asset types so the picker widget respects the same
     // restrictions configured on the media type's source plugin.
     $allowed_types = $this->getAllowedTypesFromField($items);
-    if (!empty($allowed_types)) {
-      $browser_query['allowed_types'] = implode(',', $allowed_types);
-    }
 
-    $browser_url = Url::fromRoute('assetkiwi_connect.browser', [], ['query' => $browser_query])->toString();
+    $picker_config = [
+      'mode' => 'single',
+      'allowedTypes' => $allowed_types,
+      'endpoints' => [
+        'assets' => Url::fromRoute('assetkiwi_connect.api.assets')->toString(),
+        'facets' => Url::fromRoute('assetkiwi_connect.api.facets')->toString(),
+      ],
+    ];
 
     $element['browse_button'] = [
       '#type' => 'button',
       '#value' => empty($value) ? $this->t('Browse DAM') : $this->t('Replace asset'),
       '#attributes' => [
         'class' => ['assetkiwi-browse-btn', 'button', 'button--primary'],
-        'data-browser-url' => $browser_url,
+        'data-assetkiwi-picker' => Json::encode($picker_config),
       ],
       '#limit_validation_errors' => [],
       '#executes_submit_callback' => FALSE,
@@ -100,6 +144,22 @@ class AssetKiwiBrowserWidget extends WidgetBase {
   }
 
   /**
+   * Fetches the selected asset for preview rendering.
+   */
+  protected function loadAssetPreview(string $uuid): ?array {
+    try {
+      $asset = $this->assetKiwiClient->getAsset($uuid);
+      if (empty($asset)) {
+        return NULL;
+      }
+      return $this->assetKiwiClient->toPickerAsset($asset);
+    }
+    catch (\Throwable $e) {
+      return NULL;
+    }
+  }
+
+  /**
    * Returns allowed MIME type groups from the field's entity's media source.
    *
    * @return string[]
@@ -112,7 +172,7 @@ class AssetKiwiBrowserWidget extends WidgetBase {
         $media_type = $entity->bundle->entity;
         if ($media_type) {
           $source = $media_type->getSource();
-          if ($source instanceof asset.kiwiAsset) {
+          if ($source instanceof AssetKiwiAsset) {
             return $source->getAllowedMimeTypes();
           }
         }

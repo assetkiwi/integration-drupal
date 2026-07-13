@@ -2,6 +2,7 @@ api_url: ''
 api_token: ''
 cache_lifetime: 3600
 webhook_secret: ''
+serve_from_cdn: true
 image_style_mapping:
   thumbnail: thumb
   medium: medium
