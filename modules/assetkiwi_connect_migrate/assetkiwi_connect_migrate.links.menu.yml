@@ -1,0 +1,6 @@
+assetkiwi_connect_migrate.overview:
+  title: 'Migrate to asset.kiwi'
+  route_name: assetkiwi_connect_migrate.overview
+  parent: system.admin_config_media
+  description: 'Migrate locally-stored media to asset.kiwi.'
+  weight: 11

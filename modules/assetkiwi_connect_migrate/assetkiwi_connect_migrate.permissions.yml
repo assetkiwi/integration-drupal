@@ -1,0 +1,4 @@
+administer assetkiwi migration:
+  title: 'Administer asset.kiwi migration'
+  description: 'Scan, migrate, and purge locally-stored media to asset.kiwi. Purging permanently deletes local files once confirmed — restrict to trusted site administrators.'
+  restrict access: true

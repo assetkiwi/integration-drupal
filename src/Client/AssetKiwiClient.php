@@ -130,6 +130,87 @@ class AssetKiwiClient {
     }
   }
 
+  /**
+   * Uploads a local file to asset.kiwi.
+   *
+   * Used by the migration submodule to offload locally-stored media into the
+   * tenant's configured storage driver. Relies on asset.kiwi's own
+   * content-hash dedup: a 409 response means an asset with identical bytes
+   * already exists there, and its UUID is reused rather than creating a
+   * duplicate — this is what makes re-running a migration safe.
+   *
+   * @return array{uuid: string, reused: bool}|null
+   *   NULL on failure — see getLastError().
+   */
+  public function uploadAsset(string $filePath, string $originalFilename, string $mimeType): ?array {
+    if (!is_readable($filePath)) {
+      $this->lastError = 'File not readable: ' . $filePath;
+      return NULL;
+    }
+
+    $handle = fopen($filePath, 'r');
+    if ($handle === FALSE) {
+      $this->lastError = 'Could not open file: ' . $filePath;
+      return NULL;
+    }
+
+    try {
+      $response = $this->httpClient->request('POST', $this->apiUrl . '/api/v1/assets', [
+        'headers' => [
+          'Authorization' => 'Bearer ' . $this->apiToken,
+          'Accept' => 'application/json',
+        ],
+        'multipart' => [
+          [
+            'name' => 'file',
+            'contents' => $handle,
+            'filename' => $originalFilename,
+            'headers' => ['Content-Type' => $mimeType],
+          ],
+        ],
+        // Read the body ourselves below — a 409 (dedup) is an expected,
+        // meaningful response here, not an error to throw on.
+        'http_errors' => FALSE,
+      ]);
+    }
+    catch (GuzzleException $e) {
+      $this->lastError = $e->getMessage();
+      $this->logger->error('Failed to upload asset @filename: @message', [
+        '@filename' => $originalFilename,
+        '@message' => $e->getMessage(),
+      ]);
+      return NULL;
+    }
+
+    $status = $response->getStatusCode();
+    $body = json_decode((string)$response->getBody(), TRUE) ?? [];
+
+    if ($status === 201) {
+      $uuid = $body['data']['uuid'] ?? $body['uuid'] ?? NULL;
+      if (!$uuid) {
+        $this->lastError = 'Upload succeeded but no UUID was returned.';
+        return NULL;
+      }
+      return ['uuid' => $uuid, 'reused' => FALSE];
+    }
+
+    if ($status === 409) {
+      $uuid = $body['existing_uuid'] ?? NULL;
+      if (!$uuid) {
+        $this->lastError = 'Duplicate reported but no existing_uuid was returned.';
+        return NULL;
+      }
+      return ['uuid' => $uuid, 'reused' => TRUE];
+    }
+
+    $this->lastError = $body['message'] ?? ('Upload failed with HTTP ' . $status);
+    $this->logger->error('Failed to upload asset @filename: @message', [
+      '@filename' => $originalFilename,
+      '@message' => $this->lastError,
+    ]);
+    return NULL;
+  }
+
   public function normalizeAsset(array $asset): array {
     return $asset['data'] ?? $asset;
   }

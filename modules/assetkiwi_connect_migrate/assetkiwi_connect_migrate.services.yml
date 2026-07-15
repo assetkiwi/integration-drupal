@@ -1,0 +1,31 @@
+services:
+  logger.channel.assetkiwi_connect_migrate:
+    parent: logger.channel_base
+    arguments: ['assetkiwi_connect_migrate']
+  assetkiwi_connect_migrate.status_storage:
+    class: Drupal\assetkiwi_connect_migrate\MigrationStatusStorage
+    arguments:
+      - '@database'
+      - '@cache_tags.invalidator'
+  assetkiwi_connect_migrate.manager:
+    class: Drupal\assetkiwi_connect_migrate\MigrationManager
+    arguments:
+      - '@assetkiwi_connect.client'
+      - '@assetkiwi_connect_migrate.status_storage'
+      - '@entity_type.manager'
+      - '@file_system'
+      - '@logger.channel.assetkiwi_connect_migrate'
+  assetkiwi_connect_migrate.uninstall_validator:
+    class: Drupal\assetkiwi_connect_migrate\MigrationUninstallValidator
+    arguments:
+      - '@assetkiwi_connect_migrate.status_storage'
+      - '@string_translation'
+    tags:
+      - { name: module_install.uninstall_validator }
+  assetkiwi_connect_migrate.render_swapper:
+    class: Drupal\assetkiwi_connect_migrate\OffloadedMediaRenderer
+    arguments:
+      - '@assetkiwi_connect_migrate.status_storage'
+      - '@assetkiwi_connect.client'
+      - '@assetkiwi_connect.mime_icon_resolver'
+      - '@logger.channel.assetkiwi_connect_migrate'

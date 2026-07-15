@@ -1,0 +1,8 @@
+name: 'Asset.Kiwi Connect: Migrate'
+type: module
+description: 'Migrates locally-stored Drupal media to asset.kiwi. Uploads originals to the tenant''s configured storage driver and offloads rendering to asset.kiwi without rewriting existing media references. Optional companion to assetkiwi_connect — safe to leave uninstalled if you have no local media to migrate.'
+core_version_requirement: ^10 || ^11
+package: Media
+dependencies:
+  - assetkiwi_connect:assetkiwi_connect
+  - drupal:media

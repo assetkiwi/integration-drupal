@@ -1,0 +1,15 @@
+assetkiwi_connect_migrate.overview:
+  path: '/admin/config/media/assetkiwi/migrate'
+  defaults:
+    _form: '\Drupal\assetkiwi_connect_migrate\Form\MigrationForm'
+    _title: 'Migrate to asset.kiwi'
+  requirements:
+    _permission: 'administer assetkiwi migration'
+
+assetkiwi_connect_migrate.purge:
+  path: '/admin/config/media/assetkiwi/migrate/purge'
+  defaults:
+    _form: '\Drupal\assetkiwi_connect_migrate\Form\MigrationPurgeForm'
+    _title: 'Purge local files'
+  requirements:
+    _permission: 'administer assetkiwi migration'

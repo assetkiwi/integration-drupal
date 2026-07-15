@@ -1,0 +1,23 @@
+<?php
+
+declare(strict_types=1);
+
+/**
+ * @file
+ * Hooks for the asset.kiwi migration submodule.
+ */
+
+use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
+use Drupal\media\MediaInterface;
+
+/**
+ * Implements hook_media_view_alter().
+ *
+ * Swaps the rendered source field for offloaded/purged media to the
+ * asset.kiwi copy (Option B / view-layer swap — see MIGRATION_PLAN.md §4.5
+ * and OffloadedMediaRenderer). The local file and field value are never
+ * touched; only what gets rendered changes.
+ */
+function assetkiwi_connect_migrate_media_view_alter(array &$build, MediaInterface $media, EntityViewDisplayInterface $display): void {
+  \Drupal::service('assetkiwi_connect_migrate.render_swapper')->alter($build, $media);
+}
