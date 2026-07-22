@@ -1,7 +1,7 @@
-name: 'Asset.Kiwi Connect'
+name: 'asset.kiwi Connect'
 type: module
-description: 'Connects to Asset.Kiwi digital asset management platform with asset browsing, usage tracking, webhook sync, and image formatting.'
-core_version_requirement: ^10 || ^11
+description: 'Connects to asset.kiwi digital asset management platform with asset browsing, usage tracking, webhook sync, and image formatting.'
+core_version_requirement: ^11
 package: Media
 dependencies:
   - drupal:media

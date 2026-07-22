@@ -2,107 +2,93 @@
 
 declare(strict_types=1);
 
+/**
+ * @file
+ * Hooks for the assetkiwi_connect module.
+ *
+ * The real hook logic lives in \Drupal\assetkiwi_connect\Hook\AssetkiwiConnectHooks,
+ * implemented via the #[Hook] attribute (Drupal >=11.1). The procedural
+ * stubs below are marked #[LegacyHook] so Drupal >=11.1 skips them (only the
+ * class method runs); they only actually execute on Drupal 10.1-11.0, which
+ * predates attribute-based hook discovery, and simply delegate to the same
+ * service so the behavior is identical either way.
+ */
+
 use Drupal\Core\Entity\EntityInterface;
+use Drupal\Core\Hook\Attribute\LegacyHook;
 use Drupal\Core\Routing\RouteMatchInterface;
-use Drupal\Core\Url;
+use Drupal\assetkiwi_connect\Hook\AssetkiwiConnectHooks;
 
 /**
  * Implements hook_help().
  */
+#[LegacyHook]
 function assetkiwi_connect_help(string $route_name, RouteMatchInterface $route_match): string {
-  switch ($route_name) {
-    case 'help.page.assetkiwi_connect':
-      return '<p>' . t('Connects Drupal to the Asset.Kiwi digital asset management platform. Configure the connection at <a href=":settings">Asset.Kiwi Settings</a>.', [':settings' => Url::fromRoute('assetkiwi_connect.settings')->toString()]) . '</p>';
-  }
-  return '';
+  return \Drupal::service(AssetkiwiConnectHooks::class)->help($route_name, $route_match);
 }
 
 /**
  * Implements hook_entity_insert().
  */
+#[LegacyHook]
 function assetkiwi_connect_entity_insert(EntityInterface $entity): void {
-  _assetkiwi_connect_track_usage($entity);
+  \Drupal::service(AssetkiwiConnectHooks::class)->entityInsert($entity);
 }
 
 /**
  * Implements hook_entity_update().
  */
+#[LegacyHook]
 function assetkiwi_connect_entity_update(EntityInterface $entity): void {
-  _assetkiwi_connect_track_usage($entity);
+  \Drupal::service(AssetkiwiConnectHooks::class)->entityUpdate($entity);
 }
 
 /**
  * Implements hook_entity_delete().
  */
+#[LegacyHook]
 function assetkiwi_connect_entity_delete(EntityInterface $entity): void {
-  _assetkiwi_connect_remove_usage($entity);
+  \Drupal::service(AssetkiwiConnectHooks::class)->entityDelete($entity);
 }
 
 /**
- * Reports asset usage to Asset.Kiwi for media entities.
+ * Implements hook_page_attachments().
+ *
+ * On asset.kiwi-related routes in per-user OAuth mode, warns the current
+ * user if they have not yet connected their account and provides a link to
+ * begin the OAuth2 authorization flow.
  */
-function _assetkiwi_connect_track_usage(EntityInterface $entity): void {
-  if ($entity->getEntityTypeId() !== 'media') {
+#[LegacyHook]
+function assetkiwi_connect_page_attachments(array &$attachments): void {
+  // Only on asset.kiwi related routes.
+  $route = \Drupal::routeMatch()->getRouteName();
+  if (strpos($route, 'assetkiwi') === FALSE
+    && strpos($route, 'media_library') === FALSE
+    && strpos($route, '.edit_form') === FALSE) {
     return;
   }
 
-  if (!$entity->hasField('field_assetkiwi_uuid')) {
+  $config = \Drupal::config('assetkiwi_connect.settings');
+  if ($config->get('oauth_mode') !== 'per_user') {
     return;
   }
 
-  $uuid = $entity->get('field_assetkiwi_uuid')->getString();
-  if (empty($uuid)) {
+  $uid = \Drupal::currentUser()->id();
+  if (!$uid) {
     return;
   }
 
-  try {
-    /** @var \Drupal\assetkiwi_connect\Client\AssetKiwiClient $client */
-    $client = Drupal::service('assetkiwi_connect.client');
-    $client->reportUsage(
-      $uuid,
-      $entity->getEntityTypeId(),
-      (string)$entity->id(),
-      $entity->toUrl('canonical', ['absolute' => TRUE])->toString(),
+  $userData = \Drupal::service('user.data');
+  $token = $userData->get('assetkiwi_connect', (int) $uid, 'oauth_access_token');
+
+  if (!$token) {
+    $oauthManager = \Drupal::service('assetkiwi_connect.oauth_manager');
+    $authorizeUrl = $oauthManager->getAuthorizationUrl();
+
+    \Drupal::messenger()->addWarning(
+      t('Your asset.kiwi account is not connected. <a href=":url">Connect now</a> to access your assets.', [
+        ':url' => $authorizeUrl,
+      ])
     );
-  }
-  catch (Exception $e) {
-    Drupal::logger('assetkiwi_connect')->warning('Failed to track usage for @uuid: @message', [
-      '@uuid' => $uuid,
-      '@message' => $e->getMessage(),
-    ]);
-  }
-}
-
-/**
- * Removes asset usage from Asset.Kiwi for media entities.
- */
-function _assetkiwi_connect_remove_usage(EntityInterface $entity): void {
-  if ($entity->getEntityTypeId() !== 'media') {
-    return;
-  }
-
-  if (!$entity->hasField('field_assetkiwi_uuid')) {
-    return;
-  }
-
-  $uuid = $entity->get('field_assetkiwi_uuid')->getString();
-  if (empty($uuid)) {
-    return;
-  }
-
-  try {
-    /** @var \Drupal\assetkiwi_connect\Client\AssetKiwiClient $client */
-    $client = Drupal::service('assetkiwi_connect.client');
-    $client->removeUsage(
-      $uuid,
-      $entity->getEntityTypeId(),
-      (string)$entity->id(),
-    );
-  }
-  catch (Exception $e) {
-    Drupal::logger('assetkiwi_connect')->warning('Failed to remove usage for @uuid: @message', [
-      '@uuid' => $uuid,
-      '@message' => $e->getMessage(),
-    ]);
   }
 }

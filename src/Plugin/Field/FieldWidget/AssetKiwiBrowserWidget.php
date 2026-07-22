@@ -12,6 +12,7 @@ use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\Core\Url;
 use Drupal\assetkiwi_connect\Client\AssetKiwiClient;
+use Drupal\assetkiwi_connect\OAuth\OAuthManager;
 use Drupal\assetkiwi_connect\Plugin\media\Source\AssetKiwiAsset;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
@@ -25,12 +26,15 @@ class AssetKiwiBrowserWidget extends WidgetBase {
 
   protected AssetKiwiClient $assetKiwiClient;
 
+  protected OAuthManager $oauthManager;
+
   /**
    * {@inheritdoc}
    */
   public static function create(ContainerInterface $container, array $configuration, $plugin_id, $plugin_definition): static {
     $instance = parent::create($container, $configuration, $plugin_id, $plugin_definition);
     $instance->assetKiwiClient = $container->get('assetkiwi_connect.client');
+    $instance->oauthManager = $container->get('assetkiwi_connect.oauth_manager');
     return $instance;
   }
 
@@ -139,6 +143,24 @@ class AssetKiwiBrowserWidget extends WidgetBase {
     }
 
     $element['#attached']['library'][] = 'assetkiwi_connect/widget';
+
+    // When per-user OAuth is enabled and the current user has not yet
+    // connected their account, pass the OAuth state to the widget JS so it
+    // can redirect the user to connect instead of opening a broken picker.
+    if ($this->oauthManager->isEnabled()) {
+      $uid = \Drupal::currentUser()->id();
+      if ($uid) {
+        $userData = \Drupal::service('user.data');
+        $token = $userData->get('assetkiwi_connect', (int) $uid, 'oauth_access_token');
+        if (!$token) {
+          $element['#attributes']['data-assetkiwi-oauth-required'] = 'true';
+          $element['#attributes']['data-assetkiwi-oauth-url'] = $this->oauthManager->getAuthorizationUrl();
+        }
+        else {
+          $element['#attributes']['data-assetkiwi-oauth-required'] = 'false';
+        }
+      }
+    }
 
     return $element;
   }

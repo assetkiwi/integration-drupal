@@ -7,3 +7,10 @@ image_style_mapping:
   thumbnail: thumb
   medium: medium
   large: large
+oauth_mode: shared_token
+oauth_client_id: ''
+oauth_client_secret: ''
+oauth_authorize_url: ''
+oauth_token_url: ''
+oauth_scopes:
+  - 'assets:read'

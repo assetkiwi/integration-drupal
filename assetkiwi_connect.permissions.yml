@@ -1,7 +1,7 @@
 administer assetkiwi:
-  title: 'Administer Asset.Kiwi settings'
-  description: 'Configure the Asset.Kiwi connection settings.'
+  title: 'Administer asset.kiwi settings'
+  description: 'Configure the asset.kiwi connection settings.'
 
 browse assetkiwi assets:
-  title: 'Browse Asset.Kiwi assets'
-  description: 'Browse and select assets from Asset.Kiwi.'
+  title: 'Browse asset.kiwi assets'
+  description: 'Browse and select assets from asset.kiwi.'

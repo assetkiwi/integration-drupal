@@ -1,6 +1,6 @@
 assetkiwi_connect.settings:
-  title: 'Asset.Kiwi Settings'
+  title: 'asset.kiwi Settings'
   route_name: assetkiwi_connect.settings
   parent: system.admin_config_media
-  description: 'Configure connection to Asset.Kiwi.'
+  description: 'Configure connection to asset.kiwi.'
   weight: 10

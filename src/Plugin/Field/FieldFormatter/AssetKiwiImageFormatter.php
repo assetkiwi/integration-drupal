@@ -38,6 +38,13 @@ class AssetKiwiImageFormatter extends FormatterBase implements ContainerFactoryP
         'variant' => '',
         'image_loading' => 'lazy',
         'link_to_original' => FALSE,
+        'use_dynamic_delivery' => FALSE,
+        'image_style' => '',
+        'width' => NULL,
+        'height' => NULL,
+        'fit' => '',
+        'format' => '',
+        'quality' => NULL,
       ] + parent::defaultSettings();
   }
 
@@ -83,13 +90,125 @@ class AssetKiwiImageFormatter extends FormatterBase implements ContainerFactoryP
       '#default_value' => $this->getSetting('link_to_original'),
     ];
 
+    // --- DynamicDelivery settings ---
+    $elements['dynamic_delivery'] = [
+      '#type' => 'details',
+      '#title' => $this->t('DynamicDelivery (on-the-fly transforms)'),
+      '#description' => $this->t('When enabled, images are transformed on-the-fly by asset.kiwi rather than using pre-computed variants.'),
+      '#open' => $this->getSetting('use_dynamic_delivery'),
+    ];
+
+    $elements['dynamic_delivery']['use_dynamic_delivery'] = [
+      '#type' => 'checkbox',
+      '#title' => $this->t('Use DynamicDelivery'),
+      '#description' => $this->t('Generate images on-the-fly via imgproxy. If unchecked, the variant selected above is used instead.'),
+      '#default_value' => $this->getSetting('use_dynamic_delivery'),
+    ];
+
+    $current_image_style = $this->getSetting('image_style');
+    $styleOptions = ['' => $this->t('- Ad-hoc (use width/height below) -')];
+    foreach ($this->assetKiwiClient->getImageStyles() as $style) {
+      $key = $style['key'] ?? '';
+      if ($key === '') {
+        continue;
+      }
+      $styleOptions[$key] = $style['name'] ?? $key;
+    }
+    if ($current_image_style !== '' && !isset($styleOptions[$current_image_style])) {
+      $styleOptions[$current_image_style] = $this->t('@key (not found in asset.kiwi)', ['@key' => $current_image_style]);
+    }
+
+    $elements['dynamic_delivery']['image_style'] = [
+      '#type' => 'select',
+      '#title' => $this->t('Image style (DynamicDelivery)'),
+      '#description' => $this->t('A named image style preset. Choose "Ad-hoc" to configure dimensions below.'),
+      '#options' => $styleOptions,
+      '#default_value' => $current_image_style,
+    ];
+
+    $elements['dynamic_delivery']['width'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Width'),
+      '#description' => $this->t('Output width in pixels. Leave empty for auto.'),
+      '#default_value' => $this->getSetting('width'),
+      '#min' => 1,
+    ];
+
+    $elements['dynamic_delivery']['height'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Height'),
+      '#description' => $this->t('Output height in pixels. Leave empty for auto.'),
+      '#default_value' => $this->getSetting('height'),
+      '#min' => 1,
+    ];
+
+    $elements['dynamic_delivery']['fit'] = [
+      '#type' => 'select',
+      '#title' => $this->t('Fit mode'),
+      '#description' => $this->t('How the image should fit within the given dimensions.'),
+      '#options' => [
+        '' => $this->t('- Default -'),
+        'fill' => $this->t('Fill (crop to exact dimensions)'),
+        'fit' => $this->t('Fit (contain within bounds)'),
+        'fill-down' => $this->t('Fill-down (scale down only)'),
+        'fit-down' => $this->t('Fit-down (contain, scale down only)'),
+        'crop' => $this->t('Crop'),
+      ],
+      '#default_value' => $this->getSetting('fit'),
+    ];
+
+    $elements['dynamic_delivery']['format'] = [
+      '#type' => 'select',
+      '#title' => $this->t('Output format'),
+      '#description' => $this->t('Convert the image to a specific format. Leave empty to preserve the original format.'),
+      '#options' => [
+        '' => $this->t('- Preserve original -'),
+        'webp' => 'WebP',
+        'avif' => 'AVIF',
+        'jpeg' => 'JPEG',
+        'png' => 'PNG',
+        'gif' => 'GIF',
+      ],
+      '#default_value' => $this->getSetting('format'),
+    ];
+
+    $elements['dynamic_delivery']['quality'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Quality'),
+      '#description' => $this->t('Output quality (1–100). Leave empty for default.'),
+      '#default_value' => $this->getSetting('quality'),
+      '#min' => 1,
+      '#max' => 100,
+    ];
+
     return $elements;
   }
 
   public function settingsSummary(): array {
     $summary = [];
-    $variant = $this->getSetting('variant');
-    $summary[] = $variant ? $this->t('Variant: @variant', ['@variant' => $variant]) : $this->t('Original image');
+
+    if ($this->getSetting('use_dynamic_delivery')) {
+      $imageStyle = $this->getSetting('image_style');
+      if (!empty($imageStyle)) {
+        $summary[] = $this->t('DynamicDelivery style: @style', ['@style' => $imageStyle]);
+      }
+      else {
+        $dims = [];
+        if ($this->getSetting('width')) {
+          $dims[] = $this->t('@w px wide', ['@w' => $this->getSetting('width')]);
+        }
+        if ($this->getSetting('height')) {
+          $dims[] = $this->t('@h px tall', ['@h' => $this->getSetting('height')]);
+        }
+        $label = !empty($dims) ? implode(', ', $dims) : $this->t('original size');
+        $summary[] = $this->t('DynamicDelivery: @label', ['@label' => $label]);
+      }
+    }
+    else {
+      $variant = $this->getSetting('variant');
+      $summary[] = $variant ? $this->t('Variant: @variant', ['@variant' => $variant]) : $this->t('Original image');
+    }
+
     $summary[] = $this->t('Loading: @loading', ['@loading' => $this->getSetting('image_loading')]);
     if ($this->getSetting('link_to_original')) {
       $summary[] = $this->t('Linked to original');
@@ -102,6 +221,7 @@ class AssetKiwiImageFormatter extends FormatterBase implements ContainerFactoryP
     $variant = $this->getSetting('variant');
     $loading = $this->getSetting('image_loading');
     $link = $this->getSetting('link_to_original');
+    $useDynamicDelivery = $this->getSetting('use_dynamic_delivery');
 
     foreach ($items as $delta => $item) {
       $uuid = $item->getString();
@@ -118,26 +238,61 @@ class AssetKiwiImageFormatter extends FormatterBase implements ContainerFactoryP
       $original_url = $data['url'] ?? '';
       $display_url = $original_url;
 
-      $resolved = !empty($variant) ? $this->assetKiwiClient->resolveVariant($data, $variant) : NULL;
-      if ($resolved) {
-        $display_url = $resolved['url'] ?? $display_url;
+      if ($useDynamicDelivery) {
+        $imageStyleId = $this->getSetting('image_style');
+        if (!empty($imageStyleId)) {
+          $display_url = $this->assetKiwiClient->getTransformUrlByStyle($uuid, $imageStyleId);
+        }
+        else {
+          $options = [];
+          if ($w = $this->getSetting('width')) { $options['w'] = $w; }
+          if ($h = $this->getSetting('height')) { $options['h'] = $h; }
+          if ($f = $this->getSetting('fit')) { $options['fit'] = $f; }
+          if ($fmt = $this->getSetting('format')) { $options['format'] = $fmt; }
+          if ($q = $this->getSetting('quality')) { $options['q'] = $q; }
+          $display_url = $this->assetKiwiClient->getTransformUrl($uuid, $options);
+        }
+
+        $alt = $data['alt_text'] ?? $data['original_name'] ?? '';
+        $image = [
+          '#theme' => 'image',
+          '#uri' => $display_url,
+          '#alt' => $alt,
+          '#attributes' => [
+            'loading' => $loading,
+            'class' => ['assetkiwi-image'],
+          ],
+        ];
+        if ($this->getSetting('width')) {
+          $image['#width'] = $this->getSetting('width');
+        }
+        if ($this->getSetting('height')) {
+          $image['#height'] = $this->getSetting('height');
+        }
       }
+      else {
+        // Pre-computed variant (current behaviour).
+        $resolved = !empty($variant) ? $this->assetKiwiClient->resolveVariant($data, $variant) : NULL;
+        if ($resolved) {
+          $display_url = $resolved['url'] ?? $display_url;
+        }
 
-      $alt = $data['alt_text'] ?? $data['original_name'] ?? '';
+        $alt = $data['alt_text'] ?? $data['original_name'] ?? '';
 
-      $image = [
-        '#theme' => 'image',
-        '#uri' => $display_url,
-        '#alt' => $alt,
-        '#attributes' => [
-          'loading' => $loading,
-          'class' => ['assetkiwi-image'],
-        ],
-      ];
+        $image = [
+          '#theme' => 'image',
+          '#uri' => $display_url,
+          '#alt' => $alt,
+          '#attributes' => [
+            'loading' => $loading,
+            'class' => ['assetkiwi-image'],
+          ],
+        ];
 
-      if ($resolved && !empty($resolved['width'])) {
-        $image['#width'] = $resolved['width'];
-        $image['#height'] = $resolved['height'];
+        if ($resolved && !empty($resolved['width'])) {
+          $image['#width'] = $resolved['width'];
+          $image['#height'] = $resolved['height'];
+        }
       }
 
       if ($link && $original_url) {

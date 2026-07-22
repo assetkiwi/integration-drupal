@@ -11,6 +11,8 @@ namespace Drupal\assetkiwi_connect\Form;
 
 use Drupal\Core\Form\ConfigFormBase;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Url;
+use Drupal\Component\Utility\Html;
 use Drupal\assetkiwi_connect\Client\AssetKiwiClient;
 use GuzzleHttp\ClientInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -96,6 +98,108 @@ class SettingsForm extends ConfigFormBase {
       '#default_value' => $config->get('serve_from_cdn') ?? TRUE,
     ];
 
+    // --- OAuth2 Configuration (Per-User Mode) ---
+    $form['oauth'] = [
+      '#type' => 'details',
+      '#title' => $this->t('OAuth2 Authentication'),
+      '#description' => $this->t('Configure per-user OAuth2 authentication. When enabled, each Drupal user authenticates individually against the asset.kiwi authorization server instead of sharing a single API token.'),
+      '#open' => $config->get('oauth_mode') === 'per_user',
+    ];
+
+    $form['oauth']['oauth_mode'] = [
+      '#type' => 'radios',
+      '#title' => $this->t('Authentication Mode'),
+      '#options' => [
+        'shared_token' => $this->t('Shared token — all users share the API token configured above'),
+        'per_user' => $this->t('Per-user OAuth — each user gets their own DAM identity'),
+      ],
+      '#default_value' => $config->get('oauth_mode') ?? 'shared_token',
+    ];
+
+    $redirectUri = Url::fromRoute('assetkiwi_connect.oauth.callback', [], ['absolute' => TRUE])->toString();
+
+    $form['oauth']['oauth_redirect_uri'] = [
+      '#type' => 'item',
+      '#title' => $this->t('Redirect URI'),
+      '#markup' => '<code>' . Html::escape($redirectUri) . '</code>',
+      '#description' => $this->t('When creating the OAuth client on your asset.kiwi instance (Settings → OAuth Clients), register this exact URL as a Redirect URI.'),
+      '#states' => [
+        'visible' => [
+          ':input[name="oauth_mode"]' => ['value' => 'per_user'],
+        ],
+      ],
+    ];
+
+    $form['oauth']['oauth_client_id'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('OAuth Client ID'),
+      '#description' => $this->t('The client ID registered with the asset.kiwi OAuth2 authorization server.'),
+      '#default_value' => $config->get('oauth_client_id') ?? '',
+      '#maxlength' => 255,
+      '#states' => [
+        'visible' => [
+          ':input[name="oauth_mode"]' => ['value' => 'per_user'],
+        ],
+      ],
+    ];
+
+    $form['oauth']['oauth_client_secret'] = [
+      '#type' => 'password',
+      '#title' => $this->t('OAuth Client Secret'),
+      '#description' => $this->t('The client secret for the registered OAuth2 application.'),
+      '#default_value' => $config->get('oauth_client_secret') ?? '',
+      '#maxlength' => 255,
+      '#states' => [
+        'visible' => [
+          ':input[name="oauth_mode"]' => ['value' => 'per_user'],
+        ],
+      ],
+    ];
+
+    $form['oauth']['oauth_authorize_url'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Authorization URL'),
+      '#description' => $this->t('The OAuth2 authorization endpoint (e.g., https://dam.example.com/oauth/authorize).'),
+      '#default_value' => $config->get('oauth_authorize_url') ?? '',
+      '#maxlength' => 512,
+      '#states' => [
+        'visible' => [
+          ':input[name="oauth_mode"]' => ['value' => 'per_user'],
+        ],
+      ],
+    ];
+
+    $form['oauth']['oauth_token_url'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Token URL'),
+      '#description' => $this->t('The OAuth2 token endpoint (e.g., https://dam.example.com/oauth/token).'),
+      '#default_value' => $config->get('oauth_token_url') ?? '',
+      '#maxlength' => 512,
+      '#states' => [
+        'visible' => [
+          ':input[name="oauth_mode"]' => ['value' => 'per_user'],
+        ],
+      ],
+    ];
+
+    $form['oauth']['oauth_scopes'] = [
+      '#type' => 'checkboxes',
+      '#title' => $this->t('OAuth Scopes'),
+      '#description' => $this->t('The scopes to request during authorization. At minimum, assets:read is required for browsing and importing assets. collections:read and tags:read are required for the collection/tag filter dropdowns in the asset picker to load — without them, the picker still browses assets but those filters stay empty.'),
+      '#options' => [
+        'assets:read' => $this->t('assets:read — Browse and import assets'),
+        'assets:write' => $this->t('assets:write — Upload and modify assets'),
+        'collections:read' => $this->t('collections:read — Browse collections (picker filter dropdown)'),
+        'tags:read' => $this->t('tags:read — Browse tags (picker filter dropdown)'),
+      ],
+      '#default_value' => $config->get('oauth_scopes') ?: ['assets:read', 'collections:read', 'tags:read'],
+      '#states' => [
+        'visible' => [
+          ':input[name="oauth_mode"]' => ['value' => 'per_user'],
+        ],
+      ],
+    ];
+
     $form['image_style_mapping'] = [
       '#type' => 'details',
       '#title' => $this->t('Image Style Mapping'),
@@ -148,6 +252,10 @@ class SettingsForm extends ConfigFormBase {
       $this->configFactory,
       $this->httpClient,
       \Drupal::service('logger.factory'),
+      \Drupal::service('file_system'),
+      \Drupal::service('request_stack'),
+      \Drupal::service('logger.channel.assetkiwi_connect'),
+      NULL,
     );
     $tempClient->setCredentials(rtrim($api_url, '/'), $api_token);
     $result = $tempClient->getAssets(['page' => 1]);
@@ -164,18 +272,32 @@ class SettingsForm extends ConfigFormBase {
    * {@inheritdoc}
    */
   public function submitForm(array &$form, FormStateInterface $form_state): void {
-    $this->config('assetkiwi_connect.settings')
+    $config = $this->config('assetkiwi_connect.settings');
+    $config
       ->set('api_url', $form_state->getValue('api_url'))
       ->set('api_token', $form_state->getValue('api_token'))
       ->set('cache_lifetime', (int)$form_state->getValue('cache_lifetime'))
       ->set('webhook_secret', $form_state->getValue('webhook_secret'))
       ->set('serve_from_cdn', (bool)$form_state->getValue('serve_from_cdn'))
+      ->set('oauth_mode', $form_state->getValue('oauth_mode'))
+      ->set('oauth_client_id', $form_state->getValue('oauth_client_id'))
+      ->set('oauth_authorize_url', $form_state->getValue('oauth_authorize_url'))
+      ->set('oauth_token_url', $form_state->getValue('oauth_token_url'))
+      ->set('oauth_scopes', array_values(array_filter($form_state->getValue('oauth_scopes') ?: [])))
       ->set('image_style_mapping', [
         'thumbnail' => $form_state->getValue('mapping_thumbnail'),
         'medium' => $form_state->getValue('mapping_medium'),
         'large' => $form_state->getValue('mapping_large'),
-      ])
-      ->save();
+      ]);
+
+    // Only overwrite the secret if a new value was provided (password fields
+    // don't retain the stored value in the UI).
+    $newSecret = $form_state->getValue('oauth_client_secret');
+    if ($newSecret !== NULL && $newSecret !== '') {
+      $config->set('oauth_client_secret', $newSecret);
+    }
+
+    $config->save();
 
     parent::submitForm($form, $form_state);
   }

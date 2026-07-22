@@ -232,14 +232,31 @@
     }
     fetch(this.options.endpoints.facets, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
       .then(function (res) {
-        return res.ok ? res.json() : null;
+        return res
+          .json()
+          .catch(function () {
+            return {};
+          })
+          .then(function (body) {
+            return { ok: res.ok, body: body };
+          });
       })
-      .then(function (data) {
-        if (!data) {
+      .then(function (result) {
+        if (!result) {
           return;
         }
-        self.state.facets.collections = data.collections || [];
-        self.state.facets.tags = data.tags || [];
+        if (result.body.error === 'oauth_required') {
+          self.state.oauthRequired = true;
+          self.state.oauthAuthorizeUrl = result.body.authorize_url;
+          self.state.oauthMessage = result.body.message || Drupal.t('Your asset.kiwi account is not connected.');
+          self._render();
+          return;
+        }
+        if (!result.ok) {
+          return;
+        }
+        self.state.facets.collections = result.body.collections || [];
+        self.state.facets.tags = result.body.tags || [];
         self._renderFacetOptions();
       })
       .catch(function () {
@@ -321,11 +338,19 @@
           return; // A newer request superseded this one.
         }
         if (!result.ok || result.body.error) {
-          self.state.error = result.body.error || Drupal.t('Could not load assets from asset.kiwi.');
+          if (result.body.error === 'oauth_required' && result.body.authorize_url) {
+            self.state.oauthRequired = true;
+            self.state.oauthAuthorizeUrl = result.body.authorize_url;
+            self.state.oauthMessage = result.body.message || Drupal.t('Your asset.kiwi account is not connected.');
+          }
+          else {
+            self.state.error = result.body.error || Drupal.t('Could not load assets from asset.kiwi.');
+          }
           self.state.items = [];
           self.state.pager = { current_page: 1, last_page: 1, total: 0 };
         }
         else {
+          self.state.oauthRequired = false;
           self.state.error = null;
           self.state.items = result.body.data || [];
           self.state.pager = result.body.meta || { current_page: 1, last_page: 1, total: self.state.items.length };
@@ -350,6 +375,40 @@
     this._els.grid.removeAttribute('aria-busy');
     this._els.grid.classList.remove('is-loading');
     this._els.grid.innerHTML = '';
+
+    if (this.state.oauthRequired) {
+      var connectDiv = document.createElement('div');
+      connectDiv.className = 'assetkiwi-picker__oauth-connect';
+
+      var icon = document.createElement('div');
+      icon.className = 'assetkiwi-picker__oauth-icon';
+      icon.innerHTML = '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>';
+      connectDiv.appendChild(icon);
+
+      var message = document.createElement('p');
+      message.className = 'assetkiwi-picker__oauth-message';
+      message.textContent = this.state.oauthMessage || Drupal.t('Your asset.kiwi account is not connected.');
+      connectDiv.appendChild(message);
+
+      var button = document.createElement('a');
+      button.href = this.state.oauthAuthorizeUrl;
+      button.className = 'assetkiwi-picker__oauth-button button button--primary';
+      button.textContent = Drupal.t('Connect to asset.kiwi');
+      connectDiv.appendChild(button);
+
+      this._els.grid.appendChild(connectDiv);
+
+      // Hide search bar and filter controls since they won't work without auth.
+      if (this._els.search) { this._els.search.parentElement.style.display = 'none'; }
+      if (this._els.mode) { this._els.mode.parentElement.style.display = 'none'; }
+      if (this._els.collectionField) { this._els.collectionField.style.display = 'none'; }
+      if (this._els.tagField) { this._els.tagField.style.display = 'none'; }
+      if (this._els.typeField) { this._els.typeField.style.display = 'none'; }
+
+      this._els.pager.innerHTML = '';
+      this._updateToolbar();
+      return;
+    }
 
     if (error) {
       var errLi = document.createElement('li');
