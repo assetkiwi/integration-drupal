@@ -242,6 +242,36 @@
   border: 1px solid #fca5a5;
 }
 
+/* ── OAuth connect state ───────────────────────────────────────────────────── */
+.assetkiwi-picker__oauth-connect {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 2rem;
+  text-align: center;
+  min-height: 200px;
+  grid-column: 1 / -1;
+}
+
+.assetkiwi-picker__oauth-icon {
+  color: #94a3b8;
+  margin-bottom: 1rem;
+  opacity: 0.7;
+}
+
+.assetkiwi-picker__oauth-message {
+  color: #475569;
+  font-size: 0.9375rem;
+  margin: 0 0 1.5rem 0;
+  max-width: 320px;
+  line-height: 1.5;
+}
+
+.assetkiwi-picker__oauth-button {
+  /* Inherits Drupal's .button--primary styles */
+}
+
 /* ── Pager ─────────────────────────────────────────────────────────────────── */
 .assetkiwi-picker__pager {
   display: flex;

@@ -51,6 +51,51 @@ Navigate to **Configuration → Media → asset.kiwi Settings** (`/admin/config/
 | **API Token** | An API token from the asset.kiwi Settings page. Required for all API requests. |
 | **Cache Lifetime** | How long to cache asset thumbnails locally, in seconds. Set to `0` to disable caching. Default: `3600` (1 hour). |
 
+### OAuth2 Authentication (Per-User Mode)
+
+asset.kiwi Connect supports two authentication modes, toggled via the **Authentication Mode** setting.
+
+#### Shared Token Mode (default)
+
+One API token is stored in module config. All Drupal users see the same assets and all API requests use the shared token. This is the simplest setup and works well for single-user Drupal sites or when all content editors share the same DAM access level.
+
+#### Per-User OAuth Mode
+
+Each Drupal user gets their own DAM identity via OAuth2 (authorization code grant with PKCE). When a user accesses an asset.kiwi-related page (media library, asset browser), they are prompted to connect their account. Once authorized, their personal access token is used for all API requests — different users can have different asset access scopes.
+
+**Enabling per-user OAuth:**
+
+1. In the asset.kiwi admin panel, create an OAuth2 client:
+   - Navigate to **Settings → OAuth Clients** (or the OAuth2 management page)
+   - Create a new client with the authorization code grant type
+   - Set the redirect URI to `https://your-drupal-site.ddev.site/assetkiwi/oauth/callback`
+   - Note the **Client ID** and **Client Secret**
+
+2. In Drupal, navigate to **Configuration → Media → asset.kiwi Settings** (`/admin/config/media/assetkiwi`)
+
+3. Under **OAuth2 Authentication**, set **Authentication Mode** to "Per-user OAuth"
+
+4. Fill in the OAuth fields:
+
+| Setting | Description |
+|---------|-------------|
+| **OAuth Client ID** | The client ID from the OAuth2 application registered in asset.kiwi |
+| **OAuth Client Secret** | The client secret from the registered OAuth2 application |
+| **Authorization URL** | The OAuth2 authorization endpoint (e.g., `https://dam.example.com/oauth/authorize`) |
+| **Token URL** | The OAuth2 token endpoint (e.g., `https://dam.example.com/oauth/token`) |
+| **OAuth Scopes** | The scopes to request. At minimum, `assets:read` is required for browsing and importing assets. Check `assets:write` if users need upload/modify permissions |
+
+5. Save the configuration
+
+**User experience:**
+
+- When a user visits an asset.kiwi-related page (media library, asset browser widget), a warning message appears: "Your asset.kiwi account is not connected. Connect now to access your assets."
+- Clicking **Connect now** redirects the user to the asset.kiwi authorization screen
+- After approving, the user is redirected back to Drupal and their access token is stored
+- Subsequent API requests use the user's personal token instead of the shared token
+- If a user's token expires or is revoked, they are prompted to reconnect
+- Users who have not yet connected fall back to the shared API token (if one is configured)
+
 ### Webhook
 
 | Setting | Description |
@@ -357,6 +402,40 @@ curl -X POST -H "X-Webhook-Signature: $SIGNATURE" \
 3. Check that assets aren't already imported (duplicate UUIDs are skipped)
 4. For file download failures, check write permissions on `public://assetkiwi_files/`
 5. Review Drupal's logs for detailed error messages
+
+## Migration Submodule (assetkiwi_connect_migrate)
+
+The `assetkiwi_connect_migrate` submodule migrates locally-stored Drupal media files to asset.kiwi.
+
+### Pipeline
+The migration follows this pipeline for each media item:
+1. **Hash** — Computes a content hash of the local file
+2. **Upload** — Uploads the file to asset.kiwi (content-addressed, duplicates are reused)
+3. **Verify** — Confirms the remote file size matches the local file
+4. **Offload** — Marks the media as offloaded; rendering is swapped to use asset.kiwi URLs
+
+Local files are NOT deleted during migration. Use the separate purge step to remove local files after verifying.
+
+### Usage
+
+#### Via Drush
+```bash
+drush assetkiwi-migrate:scan    # Find eligible media files
+drush assetkiwi-migrate:run     # Migrate all pending items
+drush assetkiwi-migrate:status  # View migration status counts
+drush assetkiwi-migrate:purge   # Delete local files for offloaded media
+```
+
+#### Via Admin UI
+Navigate to **Media → AssetKiwi Migration**. Use the Scan, Migrate, and Purge buttons.
+
+### Tracking Table
+Migration status is tracked in the `assetkiwi_connect_migrate` database table with statuses: `pending`, `uploading`, `uploaded`, `verified`, `offloaded`, `failed`, `purged`.
+
+### Important
+- Requires the main `assetkiwi_connect` module to be installed and configured
+- Migration is **idempotent** — re-running on already-migrated items is safe
+- The original Drupal file field values are never modified; rendering is swapped at the view layer
 
 ---
 

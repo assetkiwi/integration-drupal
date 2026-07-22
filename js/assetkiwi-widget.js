@@ -35,6 +35,18 @@
     var wrapper = getWrapper(btn);
     var config = JSON.parse(btn.getAttribute('data-assetkiwi-picker') || '{}');
 
+    // If OAuth is required and the user hasn't connected, redirect to
+    // the authorization URL instead of opening the broken picker.
+    var widgetEl = wrapper.closest('[data-assetkiwi-oauth-required]');
+    if (widgetEl) {
+      var oauthRequired = widgetEl.getAttribute('data-assetkiwi-oauth-required') === 'true';
+      var oauthUrl = widgetEl.getAttribute('data-assetkiwi-oauth-url');
+      if (oauthRequired && oauthUrl) {
+        window.location.href = oauthUrl;
+        return;
+      }
+    }
+
     var container = document.createElement('div');
     var dialog = Drupal.dialog(container, {
       title: Drupal.t('Select an asset from asset.kiwi'),

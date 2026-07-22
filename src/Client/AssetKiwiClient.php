@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Drupal\assetkiwi_connect\Client;
 
+use Drupal\assetkiwi_connect\OAuth\OAuthManager;
 use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\File\FileSystemInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
@@ -18,6 +19,7 @@ class AssetKiwiClient {
   protected string $apiUrl;
   protected string $apiToken;
   protected ?string $lastError = NULL;
+  protected ?int $lastStatusCode = NULL;
 
   public function __construct(
     protected ConfigFactoryInterface $configFactory,
@@ -26,6 +28,7 @@ class AssetKiwiClient {
     protected FileSystemInterface $fileSystem,
     protected RequestStack $requestStack,
     protected LoggerInterface $logger,
+    protected ?OAuthManager $oauthManager = NULL,
   ) {
     $config = $this->configFactory->get('assetkiwi_connect.settings');
     $this->apiUrl = rtrim((string)($config->get('api_url') ?? ''), '/');
@@ -41,6 +44,30 @@ class AssetKiwiClient {
     $this->apiToken = (string)($config->get('api_token') ?? '');
   }
 
+  /**
+   * Resolves the API token to use for the current request.
+   *
+   * In shared-token mode the configured api_token is used for all users.
+   * In per-user OAuth mode, an authenticated user MUST have their own
+   * personal access token — falling back to the shared token here would
+   * silently bypass the "each user connects individually" requirement the
+   * admin explicitly opted into by enabling per-user mode, and the picker
+   * would never prompt the user to connect. Only truly anonymous requests
+   * (no current user at all) fall back to the shared token.
+   */
+  protected function resolveApiToken(): ?string {
+    if (!$this->oauthManager || !$this->oauthManager->isEnabled()) {
+      return $this->apiToken;
+    }
+
+    $uid = \Drupal::currentUser()->id();
+    if ($uid) {
+      return $this->oauthManager->getToken((int) $uid);
+    }
+
+    return $this->apiToken;
+  }
+
   public function setCredentials(string $apiUrl, string $apiToken): void {
     $this->apiUrl = $apiUrl;
     $this->apiToken = $apiToken;
@@ -52,19 +79,27 @@ class AssetKiwiClient {
   private function request(string $method, string $path, array $options = []): array|null {
     try {
       $response = $this->httpClient->request($method, $this->apiUrl . $path, $options);
+      $this->lastStatusCode = $response->getStatusCode();
       $body = (string)$response->getBody();
       $data = json_decode($body, TRUE);
       return is_array($data) ? $data : NULL;
     }
     catch (GuzzleException $e) {
       $this->lastError = $e->getMessage();
+      // Capture the HTTP status from the response if available.
+      if (method_exists($e, 'getResponse') && $e->getResponse() !== NULL) {
+        $this->lastStatusCode = $e->getResponse()->getStatusCode();
+      }
+      else {
+        $this->lastStatusCode = $e->getCode() ?: NULL;
+      }
       return NULL;
     }
   }
 
   protected function defaultHeaders(): array {
     return [
-      'Authorization' => 'Bearer ' . $this->apiToken,
+      'Authorization' => 'Bearer ' . ($this->resolveApiToken() ?? ''),
       'Accept' => 'application/json',
     ];
   }
@@ -133,14 +168,19 @@ class AssetKiwiClient {
   /**
    * Uploads a local file to asset.kiwi.
    *
-   * Used by the migration submodule to offload locally-stored media into the
-   * tenant's configured storage driver. Relies on asset.kiwi's own
-   * content-hash dedup: a 409 response means an asset with identical bytes
-   * already exists there, and its UUID is reused rather than creating a
-   * duplicate — this is what makes re-running a migration safe.
+   * **@internal — for the migration submodule only.** End-user uploads must
+   * happen through the asset.kiwi app directly. This method exists solely
+   * for the `assetkiwi_connect_migrate` bulk offload pipeline.
+   *
+   * Relies on asset.kiwi's own content-hash dedup: a 409 response means an
+   * asset with identical bytes already exists there, and its UUID is reused
+   * rather than creating a duplicate — this is what makes re-running a
+   * migration safe.
    *
    * @return array{uuid: string, reused: bool}|null
    *   NULL on failure — see getLastError().
+   *
+   * @internal
    */
   public function uploadAsset(string $filePath, string $originalFilename, string $mimeType): ?array {
     if (!is_readable($filePath)) {
@@ -157,7 +197,7 @@ class AssetKiwiClient {
     try {
       $response = $this->httpClient->request('POST', $this->apiUrl . '/api/v1/assets', [
         'headers' => [
-          'Authorization' => 'Bearer ' . $this->apiToken,
+          'Authorization' => 'Bearer ' . ($this->resolveApiToken() ?? ''),
           'Accept' => 'application/json',
         ],
         'multipart' => [
@@ -209,6 +249,39 @@ class AssetKiwiClient {
       '@message' => $this->lastError,
     ]);
     return NULL;
+  }
+
+  /**
+   * Get a DynamicDelivery transform URL for on-the-fly image processing.
+   *
+   * Generates a URL that 302-redirects to a signed imgproxy URL.
+   *
+   * @param string $uuid Asset UUID
+   * @param array $options Transform options: w, h, fit, format, q, gravity
+   * @return string The API transform URL
+   */
+  public function getTransformUrl(string $uuid, array $options = []): string {
+    $params = [];
+    if (isset($options['w'])) { $params['w'] = (int) $options['w']; }
+    if (isset($options['h'])) { $params['h'] = (int) $options['h']; }
+    if (isset($options['fit'])) { $params['fit'] = $options['fit']; }
+    if (isset($options['format'])) { $params['format'] = $options['format']; }
+    if (isset($options['q'])) { $params['q'] = (int) $options['q']; }
+    if (isset($options['gravity'])) { $params['gravity'] = $options['gravity']; }
+
+    $query = !empty($params) ? '?' . http_build_query($params) : '';
+    return $this->apiUrl . '/api/v1/media/' . $uuid . '/transform' . $query;
+  }
+
+  /**
+   * Get a DynamicDelivery transform URL using a named Image Style preset.
+   *
+   * @param string $uuid Asset UUID
+   * @param string $imageStyleId The image style key registered in asset.kiwi
+   * @return string The API transform URL for the named style
+   */
+  public function getTransformUrlByStyle(string $uuid, string $imageStyleId): string {
+    return $this->apiUrl . '/api/v1/media/' . $uuid . '/transform/' . $imageStyleId;
   }
 
   public function normalizeAsset(array $asset): array {
@@ -437,6 +510,26 @@ class AssetKiwiClient {
 
   public function getLastError(): ?string {
     return $this->lastError;
+  }
+
+  /**
+   * Check if the last API error was an authentication failure (401/403).
+   */
+  public function isLastErrorAuth(): bool {
+    if ($this->lastStatusCode !== NULL) {
+      return $this->lastStatusCode === 401 || $this->lastStatusCode === 403;
+    }
+    if (!$this->lastError) {
+      return FALSE;
+    }
+    return str_contains($this->lastError, '401') || str_contains($this->lastError, '403');
+  }
+
+  /**
+   * Returns the HTTP status code from the most recent request.
+   */
+  public function getLastStatusCode(): ?int {
+    return $this->lastStatusCode;
   }
 
   protected function decodeResponse(ResponseInterface $response): array {

@@ -2,7 +2,7 @@ assetkiwi_connect.settings:
   path: '/admin/config/media/assetkiwi'
   defaults:
     _form: '\Drupal\assetkiwi_connect\Form\SettingsForm'
-    _title: 'Asset.Kiwi Settings'
+    _title: 'asset.kiwi Settings'
   requirements:
     _permission: 'administer assetkiwi'
 
@@ -23,6 +23,14 @@ assetkiwi_connect.api.facets:
     _permission: 'browse assetkiwi assets'
   options:
     no_cache: TRUE
+
+assetkiwi_connect.oauth.callback:
+  path: '/assetkiwi/oauth/callback'
+  defaults:
+    _controller: '\Drupal\assetkiwi_connect\Controller\OAuthController::callback'
+    _title: 'AssetKiwi OAuth Callback'
+  requirements:
+    _permission: 'access content'
 
 assetkiwi_connect.webhook:
   path: '/assetkiwi/webhook'

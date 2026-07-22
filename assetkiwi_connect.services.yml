@@ -1,7 +1,20 @@
 services:
+  Drupal\assetkiwi_connect\Hook\AssetkiwiConnectHooks:
+    class: Drupal\assetkiwi_connect\Hook\AssetkiwiConnectHooks
+    arguments:
+      - '@assetkiwi_connect.client'
+      - '@logger.channel.assetkiwi_connect'
   logger.channel.assetkiwi_connect:
     parent: logger.channel_base
     arguments: ['assetkiwi_connect']
+  assetkiwi_connect.oauth_manager:
+    class: Drupal\assetkiwi_connect\OAuth\OAuthManager
+    arguments:
+      - '@config.factory'
+      - '@user.data'
+      - '@current_user'
+      - '@state'
+      - '@http_client'
   assetkiwi_connect.client:
     class: Drupal\assetkiwi_connect\Client\AssetKiwiClient
     arguments:
@@ -11,6 +24,7 @@ services:
       - '@file_system'
       - '@request_stack'
       - '@logger.channel.assetkiwi_connect'
+      - '@assetkiwi_connect.oauth_manager'
   assetkiwi_connect.mime_icon_resolver:
     class: Drupal\assetkiwi_connect\Utility\MimeIconResolver
   assetkiwi_connect.existing_media_resolver:

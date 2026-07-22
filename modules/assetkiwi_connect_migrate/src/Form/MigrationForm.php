@@ -6,6 +6,7 @@ namespace Drupal\assetkiwi_connect_migrate\Form;
 
 use Drupal\Core\Form\FormBase;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\StringTranslation\ByteSizeMarkup;
 use Drupal\assetkiwi_connect_migrate\Batch\AssetKiwiMigrateBatch;
 use Drupal\assetkiwi_connect_migrate\MigrationManager;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -116,7 +117,7 @@ class MigrationForm extends FormBase {
         $rows = [];
         $totalSize = 0;
         foreach ($scanResults as $candidate) {
-          $rows[] = [$candidate['media_id'], $candidate['bundle'], $candidate['label'], $candidate['status'], $candidate['status'] === 'eligible' ? format_size($candidate['size']) : ''];
+          $rows[] = [$candidate['media_id'], $candidate['bundle'], $candidate['label'], $candidate['status'], $candidate['status'] === 'eligible' ? $this->formatBytes($candidate['size']) : ''];
           if ($candidate['status'] === 'eligible') {
             $totalSize += $candidate['size'];
           }
@@ -127,7 +128,7 @@ class MigrationForm extends FormBase {
           '#rows' => $rows,
         ];
         $form['scan_results']['total'] = [
-          '#markup' => '<p>' . $this->t('Total: @size across eligible items.', ['@size' => format_size($totalSize)]) . '</p>',
+          '#markup' => '<p>' . $this->t('Total: @size across eligible items.', ['@size' => $this->formatBytes($totalSize)]) . '</p>',
         ];
       }
     }
@@ -176,6 +177,32 @@ class MigrationForm extends FormBase {
       'operations' => $operations,
       'finished' => [AssetKiwiMigrateBatch::class, 'migrateFinished'],
     ]);
+  }
+
+  /**
+   * format_size() was deprecated in Drupal 10.2 in favor of
+   * ByteSizeMarkup::create(), then removed entirely in Drupal 11 — this
+   * site is on a core version where format_size() no longer exists. Prefer
+   * ByteSizeMarkup when available, fall back to format_size() on older 10.x
+   * where ByteSizeMarkup doesn't exist yet, and fall back further to a
+   * manual computation if somehow neither is present.
+   */
+  private function formatBytes(int $bytes): string {
+    if (class_exists(ByteSizeMarkup::class)) {
+      return (string) ByteSizeMarkup::create($bytes);
+    }
+    if (function_exists('format_size')) {
+      return (string) format_size($bytes);
+    }
+
+    $units = ['B', 'KB', 'MB', 'GB'];
+    $i = 0;
+    $n = $bytes;
+    while ($n >= 1024 && $i < count($units) - 1) {
+      $n /= 1024;
+      $i++;
+    }
+    return ($i > 0 ? number_format($n, 1) : (string) $n) . ' ' . $units[$i];
   }
 
 }

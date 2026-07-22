@@ -67,7 +67,16 @@ class AssetBrowserController extends ControllerBase {
     $apiError = $this->assetKiwiClient->getLastError();
 
     if ($apiError) {
-      return new JsonResponse(['error' => $apiError], 502);
+      if ($this->assetKiwiClient->isLastErrorAuth()) {
+        $oauthManager = \Drupal::service('assetkiwi_connect.oauth_manager');
+        return new JsonResponse([
+          'error' => 'oauth_required',
+          'message' => $this->t('Your asset.kiwi account is not connected. Connect now to browse your assets.'),
+          'authorize_url' => $oauthManager->getAuthorizationUrl($request->headers->get('referer')),
+          'meta' => [],
+        ], 401);
+      }
+      return new JsonResponse(['error' => $apiError, 'meta' => []], 502);
     }
 
     $items = $response['data'] ?? $response;
@@ -100,12 +109,20 @@ class AssetBrowserController extends ControllerBase {
   /**
    * Returns collections and tags for the picker widget's filter dropdowns.
    */
-  public function facets(): JsonResponse {
+  public function facets(Request $request): JsonResponse {
     $collections = $this->assetKiwiClient->getCollections();
     $tags = $this->assetKiwiClient->getTags();
     $apiError = $this->assetKiwiClient->getLastError();
 
     if ($apiError) {
+      if ($this->assetKiwiClient->isLastErrorAuth()) {
+        $oauthManager = \Drupal::service('assetkiwi_connect.oauth_manager');
+        return new JsonResponse([
+          'error' => 'oauth_required',
+          'message' => $this->t('Your asset.kiwi account is not connected. Connect now to browse your assets.'),
+          'authorize_url' => $oauthManager->getAuthorizationUrl($request->headers->get('referer')),
+        ], 401);
+      }
       return new JsonResponse(['error' => $apiError], 502);
     }
 

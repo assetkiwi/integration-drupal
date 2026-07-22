@@ -1,4 +1,8 @@
 services:
+  Drupal\assetkiwi_connect_migrate\Hook\AssetkiwiConnectMigrateHooks:
+    class: Drupal\assetkiwi_connect_migrate\Hook\AssetkiwiConnectMigrateHooks
+    arguments:
+      - '@assetkiwi_connect_migrate.render_swapper'
   logger.channel.assetkiwi_connect_migrate:
     parent: logger.channel_base
     arguments: ['assetkiwi_connect_migrate']

@@ -5,19 +5,25 @@ declare(strict_types=1);
 /**
  * @file
  * Hooks for the asset.kiwi migration submodule.
+ *
+ * The real hook logic lives in
+ * \Drupal\assetkiwi_connect_migrate\Hook\AssetkiwiConnectMigrateHooks,
+ * implemented via the #[Hook] attribute (Drupal >=11.1). The procedural stub
+ * below is marked #[LegacyHook] so Drupal >=11.1 skips it (only the class
+ * method runs); it only actually executes on Drupal 10.1-11.0, which
+ * predates attribute-based hook discovery, and simply delegates to the same
+ * service so the behavior is identical either way.
  */
 
 use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
+use Drupal\Core\Hook\Attribute\LegacyHook;
+use Drupal\assetkiwi_connect_migrate\Hook\AssetkiwiConnectMigrateHooks;
 use Drupal\media\MediaInterface;
 
 /**
  * Implements hook_media_view_alter().
- *
- * Swaps the rendered source field for offloaded/purged media to the
- * asset.kiwi copy (Option B / view-layer swap — see MIGRATION_PLAN.md §4.5
- * and OffloadedMediaRenderer). The local file and field value are never
- * touched; only what gets rendered changes.
  */
+#[LegacyHook]
 function assetkiwi_connect_migrate_media_view_alter(array &$build, MediaInterface $media, EntityViewDisplayInterface $display): void {
-  \Drupal::service('assetkiwi_connect_migrate.render_swapper')->alter($build, $media);
+  \Drupal::service(AssetkiwiConnectMigrateHooks::class)->mediaViewAlter($build, $media, $display);
 }
