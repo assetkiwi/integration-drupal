@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Drupal\assetkiwi_connect\OAuth;
 
 use Drupal\Core\Config\ConfigFactoryInterface;
+use Drupal\Core\Config\ImmutableConfig;
 use Drupal\Core\Session\AccountProxyInterface;
 use Drupal\Core\State\StateInterface;
 use Drupal\user\UserDataInterface;
@@ -87,7 +88,7 @@ class OAuthManager {
       'code_challenge_method' => 'S256',
     ];
 
-    return $config->get('oauth_authorize_url') . '?' . http_build_query($params);
+    return $this->getAuthorizeUrl($config) . '?' . http_build_query($params);
   }
 
   /**
@@ -100,7 +101,7 @@ class OAuthManager {
     $config = $this->configFactory->get('assetkiwi_connect.settings');
 
     try {
-      $response = $this->httpClient->post($config->get('oauth_token_url'), [
+      $response = $this->httpClient->post($this->getTokenUrl($config), [
         'form_params' => [
           'grant_type' => 'authorization_code',
           'code' => $code,
@@ -146,9 +147,36 @@ class OAuthManager {
 
   /**
    * The redirect URI that the authorization server will call back to.
+   *
+   * Forces https rather than trusting Symfony's request-scheme detection
+   * (Request::getSchemeAndHttpHost()), which reports http behind a
+   * TLS-terminating reverse proxy unless Drupal's $settings['reverse_proxy']
+   * trust config is set correctly — easy to get wrong, and this mismatch
+   * silently breaks the OAuth flow since the registered Redirect URI on the
+   * OAuth client won't match. Every real deployment of this module serves
+   * over https, so hardcoding it here is safe and removes the dependency on
+   * that infra config being right.
    */
   public function getRedirectUri(): string {
-    return \Drupal::request()->getSchemeAndHttpHost() . '/assetkiwi/oauth/callback';
+    return 'https://' . \Drupal::request()->getHttpHost() . '/assetkiwi/oauth/callback';
+  }
+
+  /**
+   * The asset.kiwi OAuth2 authorization endpoint, derived from api_url.
+   *
+   * asset.kiwi's OAuth routes are fixed (/oauth/authorize, /oauth/token), so
+   * there's no need to make the admin type them in separately — they'd just
+   * be another way to get the DAM URL wrong.
+   */
+  protected function getAuthorizeUrl(ImmutableConfig $config): string {
+    return rtrim((string) $config->get('api_url'), '/') . '/oauth/authorize';
+  }
+
+  /**
+   * The asset.kiwi OAuth2 token endpoint, derived from api_url.
+   */
+  protected function getTokenUrl(ImmutableConfig $config): string {
+    return rtrim((string) $config->get('api_url'), '/') . '/oauth/token';
   }
 
   /**

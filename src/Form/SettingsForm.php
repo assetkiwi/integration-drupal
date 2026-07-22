@@ -102,7 +102,7 @@ class SettingsForm extends ConfigFormBase {
     $form['oauth'] = [
       '#type' => 'details',
       '#title' => $this->t('OAuth2 Authentication'),
-      '#description' => $this->t('Configure per-user OAuth2 authentication. When enabled, each Drupal user authenticates individually against the asset.kiwi authorization server instead of sharing a single API token.'),
+      '#description' => $this->t('Configure per-user OAuth2 authentication. When enabled, each Drupal user authenticates individually against the asset.kiwi authorization server instead of sharing a single API token. The authorization and token endpoints are derived automatically from the API Base URL above.'),
       '#open' => $config->get('oauth_mode') === 'per_user',
     ];
 
@@ -149,32 +149,6 @@ class SettingsForm extends ConfigFormBase {
       '#description' => $this->t('The client secret for the registered OAuth2 application.'),
       '#default_value' => $config->get('oauth_client_secret') ?? '',
       '#maxlength' => 255,
-      '#states' => [
-        'visible' => [
-          ':input[name="oauth_mode"]' => ['value' => 'per_user'],
-        ],
-      ],
-    ];
-
-    $form['oauth']['oauth_authorize_url'] = [
-      '#type' => 'textfield',
-      '#title' => $this->t('Authorization URL'),
-      '#description' => $this->t('The OAuth2 authorization endpoint (e.g., https://dam.example.com/oauth/authorize).'),
-      '#default_value' => $config->get('oauth_authorize_url') ?? '',
-      '#maxlength' => 512,
-      '#states' => [
-        'visible' => [
-          ':input[name="oauth_mode"]' => ['value' => 'per_user'],
-        ],
-      ],
-    ];
-
-    $form['oauth']['oauth_token_url'] = [
-      '#type' => 'textfield',
-      '#title' => $this->t('Token URL'),
-      '#description' => $this->t('The OAuth2 token endpoint (e.g., https://dam.example.com/oauth/token).'),
-      '#default_value' => $config->get('oauth_token_url') ?? '',
-      '#maxlength' => 512,
       '#states' => [
         'visible' => [
           ':input[name="oauth_mode"]' => ['value' => 'per_user'],
@@ -281,8 +255,6 @@ class SettingsForm extends ConfigFormBase {
       ->set('serve_from_cdn', (bool)$form_state->getValue('serve_from_cdn'))
       ->set('oauth_mode', $form_state->getValue('oauth_mode'))
       ->set('oauth_client_id', $form_state->getValue('oauth_client_id'))
-      ->set('oauth_authorize_url', $form_state->getValue('oauth_authorize_url'))
-      ->set('oauth_token_url', $form_state->getValue('oauth_token_url'))
       ->set('oauth_scopes', array_values(array_filter($form_state->getValue('oauth_scopes') ?: [])))
       ->set('image_style_mapping', [
         'thumbnail' => $form_state->getValue('mapping_thumbnail'),
