@@ -59,14 +59,38 @@ class WebhookControllerTest extends UnitTestCase {
     $this->controller = WebhookController::create($container);
   }
 
-  protected function buildSignedRequest(array $payload): Request {
+  protected function buildSignedRequest(array $payload, ?int $timestamp = NULL): Request {
     $body = json_encode($payload);
-    $signature = hash_hmac('sha256', $body, self::WEBHOOK_SECRET);
+    $timestamp ??= time();
+    // The timestamp is part of the signed message — see WebhookController and
+    // Modules\Webhooks\Services\WebhookDispatcher::send().
+    $signature = hash_hmac('sha256', $timestamp . '.' . $body, self::WEBHOOK_SECRET);
 
     return new Request([], [], [], [], [], [
+      'HTTP_X_WEBHOOK_TIMESTAMP' => (string) $timestamp,
       'HTTP_X_WEBHOOK_SIGNATURE' => $signature,
       'CONTENT_TYPE' => 'application/json',
     ], $body);
+  }
+
+  public function test_missing_timestamp_rejected(): void {
+    $payload = ['event' => 'webhook.test', 'data' => []];
+    $body = json_encode($payload);
+
+    // A signature valid under the old bare-body scheme must no longer pass.
+    $request = new Request([], [], [], [], [], [
+      'HTTP_X_WEBHOOK_SIGNATURE' => hash_hmac('sha256', $body, self::WEBHOOK_SECRET),
+      'CONTENT_TYPE' => 'application/json',
+    ], $body);
+
+    $this->assertSame(403, $this->controller->receive($request)->getStatusCode());
+  }
+
+  public function test_stale_timestamp_rejected(): void {
+    // Correctly signed, but replayed outside the freshness window.
+    $request = $this->buildSignedRequest(['event' => 'webhook.test', 'data' => []], time() - 3600);
+
+    $this->assertSame(403, $this->controller->receive($request)->getStatusCode());
   }
 
   public function test_valid_hmac_accepted(): void {
@@ -82,7 +106,11 @@ class WebhookControllerTest extends UnitTestCase {
   public function test_invalid_hmac_rejected(): void {
     $body = json_encode(['event' => 'webhook.test', 'data' => []]);
 
+    // A fresh, well-formed timestamp, so this exercises the signature
+    // comparison rather than the timestamp precondition — the missing and
+    // stale timestamp cases are asserted separately below.
     $request = new Request([], [], [], [], [], [
+      'HTTP_X_WEBHOOK_TIMESTAMP' => (string) time(),
       'HTTP_X_WEBHOOK_SIGNATURE' => 'bad-signature',
       'CONTENT_TYPE' => 'application/json',
     ], $body);
@@ -96,13 +124,17 @@ class WebhookControllerTest extends UnitTestCase {
   public function test_missing_signature_rejected(): void {
     $body = json_encode(['event' => 'webhook.test', 'data' => []]);
 
+    // Timestamp present so the request gets past that precondition and is
+    // actually judged on the absent signature, as the test name claims.
     $request = new Request([], [], [], [], [], [
+      'HTTP_X_WEBHOOK_TIMESTAMP' => (string) time(),
       'CONTENT_TYPE' => 'application/json',
     ], $body);
 
     $response = $this->controller->receive($request);
 
     $this->assertSame(403, $response->getStatusCode());
+    $this->assertStringContainsString('Invalid signature', $response->getContent());
   }
 
   public function test_empty_secret_rejected(): void {

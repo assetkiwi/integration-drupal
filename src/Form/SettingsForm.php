@@ -174,6 +174,20 @@ class SettingsForm extends ConfigFormBase {
       ],
     ];
 
+    $form['oauth']['oauth_users'] = [
+      '#type' => 'link',
+      '#title' => $this->t('View authenticated users'),
+      '#url' => Url::fromRoute('assetkiwi_connect.settings.oauth_users'),
+      '#attributes' => [
+        'class' => ['button', 'btn', 'button--primary', 'btn--primary', 'use-ajax'],
+        'data-dialog-type' => 'modal',
+        'data-dialog-options' => json_encode(['modal' => TRUE, 'width' => '60%']),
+      ],
+      '#attached' => [
+        'library' => ['core/drupal.ajax'],
+      ],
+    ];
+
     $form['image_style_mapping'] = [
       '#type' => 'details',
       '#title' => $this->t('Image Style Mapping'),

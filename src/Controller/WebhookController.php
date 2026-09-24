@@ -15,6 +15,11 @@ use Symfony\Component\HttpFoundation\Request;
  */
 class WebhookController extends ControllerBase {
 
+  /**
+   * How far out of date a delivery may be before it is refused, in seconds.
+   */
+  protected const MAX_AGE_SECONDS = 300;
+
   public static function create(ContainerInterface $container): static {
     $instance = parent::create($container);
     $instance->configFactory = $container->get('config.factory');
@@ -31,9 +36,30 @@ class WebhookController extends ControllerBase {
       return new JsonResponse(['error' => 'Webhook secret not configured.'], 403);
     }
 
+    // The sender (Modules\Webhooks\Services\WebhookDispatcher::send()) signs
+    // the TIMESTAMP AND BODY together and ships the timestamp alongside:
+    //
+    //   X-Webhook-Timestamp: <unix>
+    //   X-Webhook-Signature: hash_hmac('sha256', "{$ts}.{$body}", $secret)
+    //
+    // Binding the timestamp into the signed message is what makes replay
+    // detectable — a bare-body signature stays valid forever, so a captured
+    // delivery could be resent indefinitely. Deliveries outside the window
+    // are refused even when the HMAC itself is intact.
+    $timestamp = (string) $request->headers->get('X-Webhook-Timestamp', '');
+    if ($timestamp === '' || !ctype_digit($timestamp)) {
+      $this->loggerFactory->get('assetkiwi_connect')->warning('Webhook rejected: missing or malformed timestamp.');
+      return new JsonResponse(['error' => 'Missing or malformed timestamp'], 403);
+    }
+
+    if (abs(time() - (int) $timestamp) > self::MAX_AGE_SECONDS) {
+      $this->loggerFactory->get('assetkiwi_connect')->warning('Webhook rejected: timestamp outside the accepted window.');
+      return new JsonResponse(['error' => 'Timestamp outside the accepted window'], 403);
+    }
+
     $signature = $request->headers->get('X-Webhook-Signature', '');
     $body = $request->getContent();
-    $expected = hash_hmac('sha256', $body, $secret);
+    $expected = hash_hmac('sha256', $timestamp . '.' . $body, $secret);
     if (!hash_equals($expected, $signature)) {
       $this->loggerFactory->get('assetkiwi_connect')->warning('Webhook signature verification failed.');
       return new JsonResponse(['error' => 'Invalid signature'], 403);

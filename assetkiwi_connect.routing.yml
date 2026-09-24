@@ -6,6 +6,23 @@ assetkiwi_connect.settings:
   requirements:
     _permission: 'administer assetkiwi'
 
+assetkiwi_connect.settings.oauth_users:
+  path: '/admin/config/media/assetkiwi/oauth-users'
+  defaults:
+    _form: '\Drupal\assetkiwi_connect\Form\AssetKiwiOauthUsersForm'
+    _title: 'asset.kiwi oauth users'
+  requirements:
+    _permission: 'administer assetkiwi'
+
+assetkiwi_connect.oauth_users.revoke:
+  path: '/admin/config/media/assetkiwi/oauth-users/revoke/{uid}'
+  defaults:
+    _controller: '\Drupal\assetkiwi_connect\Controller\OAuthUsersController::revoke'
+  requirements:
+    _permission: 'administer assetkiwi'
+    uid: '\d+'
+  methods: [ POST ]
+
 assetkiwi_connect.api.assets:
   path: '/admin/assetkiwi/api/assets'
   defaults:

@@ -56,6 +56,7 @@ class WebhookControllerTest extends KernelTestBase {
 
     $request = Request::create('/assetkiwi/webhook', 'POST', [], [], [], [], '{"event":"webhook.test"}');
     $request->headers->set('Content-Type', 'application/json');
+    $request->headers->set('X-Webhook-Timestamp', (string) time());
     $request->headers->set('X-Webhook-Signature', 'invalid-signature');
 
     $response = $this->controller->receive($request);
@@ -72,10 +73,12 @@ class WebhookControllerTest extends KernelTestBase {
     $config->set('webhook_secret', 'test-secret')->save();
 
     $body = json_encode(['foo' => 'bar']);
-    $signature = hash_hmac('sha256', $body, 'test-secret');
+    $timestamp = time();
+    $signature = hash_hmac('sha256', $timestamp . '.' . $body, 'test-secret');
 
     $request = Request::create('/assetkiwi/webhook', 'POST', [], [], [], [], $body);
     $request->headers->set('Content-Type', 'application/json');
+    $request->headers->set('X-Webhook-Timestamp', (string) $timestamp);
     $request->headers->set('X-Webhook-Signature', $signature);
 
     $response = $this->controller->receive($request);
@@ -90,10 +93,12 @@ class WebhookControllerTest extends KernelTestBase {
     $config->set('webhook_secret', 'test-secret')->save();
 
     $body = json_encode(['event' => 'webhook.test', 'data' => []]);
-    $signature = hash_hmac('sha256', $body, 'test-secret');
+    $timestamp = time();
+    $signature = hash_hmac('sha256', $timestamp . '.' . $body, 'test-secret');
 
     $request = Request::create('/assetkiwi/webhook', 'POST', [], [], [], [], $body);
     $request->headers->set('Content-Type', 'application/json');
+    $request->headers->set('X-Webhook-Timestamp', (string) $timestamp);
     $request->headers->set('X-Webhook-Signature', $signature);
 
     $response = $this->controller->receive($request);
